@@ -1,5 +1,0 @@
-﻿PID   COMMAND
-    1 npm run dev
-   19 node /app/node_modules/.bin/nest start --watch --path tsconfig.build.json
-   72 ps -o pid,args
-
