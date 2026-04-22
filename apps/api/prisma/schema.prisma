@@ -1,0 +1,1051 @@
+// MoviePlatform Prisma Schema
+// Video streaming platform with subscriptions, partner program, and store
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER MANAGEMENT
+// ============================================
+
+enum UserRole {
+  GUEST
+  BUYER
+  PARTNER
+  MINOR
+  MODERATOR
+  ADMIN
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum VerificationMethod {
+  PAYMENT
+  DOCUMENT
+  THIRD_PARTY
+}
+
+enum AgeCategory {
+  ZERO_PLUS    @map("0+")
+  SIX_PLUS     @map("6+")
+  TWELVE_PLUS  @map("12+")
+  SIXTEEN_PLUS @map("16+")
+  EIGHTEEN_PLUS @map("18+")
+}
+
+model User {
+  id                 String             @id @default(uuid())
+  email              String             @unique
+  passwordHash       String             @map("password_hash")
+  phone              String?
+  firstName          String             @map("first_name")
+  lastName           String             @map("last_name")
+  dateOfBirth        DateTime           @map("date_of_birth")
+  ageCategory        AgeCategory        @map("age_category")
+  avatarUrl          String?            @map("avatar_url")
+  verificationStatus VerificationStatus @default(UNVERIFIED) @map("verification_status")
+  verificationMethod VerificationMethod? @map("verification_method")
+  role               UserRole           @default(BUYER)
+  referralCode       String             @unique @map("referral_code")
+  referredById       String?            @map("referred_by_id")
+  bonusBalance       Decimal            @default(0) @map("bonus_balance") @db.Decimal(12, 2)
+  emailVerified      Boolean            @default(false) @map("email_verified")
+  referralCodeActive Boolean            @default(true) @map("referral_code_active")
+  isActive           Boolean            @default(true) @map("is_active")
+  lastLoginAt        DateTime?          @map("last_login_at")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  // Relations
+  referredBy         User?              @relation("Referrals", fields: [referredById], references: [id])
+  referrals          User[]             @relation("Referrals")
+  verifications      UserVerification[]
+  sessions           UserSession[]
+  subscriptions      UserSubscription[]
+  watchHistory       WatchHistory[]
+  playlists          Playlist[]
+  paymentMethods     PaymentMethod[]
+  transactions       Transaction[]
+  partnerAsPartner   PartnerRelationship[] @relation("PartnerRelation")
+  partnerAsReferral  PartnerRelationship[] @relation("ReferralRelation")
+  commissions             PartnerCommission[] @relation("PartnerCommissions")
+  sourceUserCommissions   PartnerCommission[] @relation("SourceUserCommissions")
+  withdrawals        WithdrawalRequest[]
+  bonusTransactions  BonusTransaction[]
+  orders             Order[]
+  notifications      UserNotification[]
+  newsletterPrefs    NewsletterPreferences?
+  documentAcceptances DocumentAcceptance[]
+  genrePreferences    UserGenrePreference[]
+  comments            Comment[]
+
+  // Admin relations
+  reviewedVerifications UserVerification[] @relation("ReviewedVerifications")
+  processedWithdrawals  WithdrawalRequest[] @relation("ProcessedWithdrawals")
+
+  // Bonus relations
+  bonusWithdrawals           BonusWithdrawal[]    @relation("BonusWithdrawals")
+  processedBonusWithdrawals  BonusWithdrawal[]    @relation("ProcessedBonusWithdrawals")
+  activityBonuses            UserActivityBonus[]
+
+  @@index([email])
+  @@index([referralCode])
+  @@index([referredById])
+  @@index([ageCategory])
+  @@index([verificationStatus])
+  @@map("users")
+}
+
+model UserVerification {
+  id              String             @id @default(uuid())
+  userId          String             @map("user_id")
+  method          VerificationMethod
+  documentUrl     String?            @map("document_url")
+  status          VerificationStatus @default(PENDING)
+  reviewedById    String?            @map("reviewed_by_id")
+  reviewedAt      DateTime?          @map("reviewed_at")
+  rejectionReason String?            @map("rejection_reason")
+  createdAt       DateTime           @default(now()) @map("created_at")
+
+  user       User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("ReviewedVerifications", fields: [reviewedById], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@map("user_verifications")
+}
+
+model UserSession {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  tokenHash  String   @map("token_hash")
+  deviceInfo String?  @map("device_info")
+  ipAddress  String   @map("ip_address")
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([expiresAt])
+  @@map("user_sessions")
+}
+
+// ============================================
+// CONTENT MANAGEMENT
+// ============================================
+
+enum ContentType {
+  SERIES
+  CLIP
+  SHORT
+  TUTORIAL
+}
+
+enum ContentStatus {
+  DRAFT
+  PENDING
+  PUBLISHED
+  REJECTED
+  ARCHIVED
+}
+
+enum VideoQuality {
+  Q_240P  @map("240p")
+  Q_480P  @map("480p")
+  Q_720P  @map("720p")
+  Q_1080P @map("1080p")
+  Q_4K    @map("4k")
+}
+
+enum EncodingStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model Content {
+  id              String        @id @default(uuid())
+  title           String
+  slug            String        @unique
+  description     String        @db.Text
+  contentType     ContentType   @map("content_type")
+  categoryId      String        @map("category_id")
+  ageCategory     AgeCategory   @map("age_category")
+  thumbnailUrl    String?       @map("thumbnail_url")
+  previewUrl      String?       @map("preview_url")
+  duration        Int           @default(0) // in seconds
+  isFree          Boolean       @default(false) @map("is_free")
+  individualPrice Decimal?      @map("individual_price") @db.Decimal(10, 2)
+  viewCount       Int           @default(0) @map("view_count")
+  status          ContentStatus @default(DRAFT)
+  publishedAt     DateTime?     @map("published_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  // EdgeCenter CDN video reference
+  edgecenterVideoId  String?    @map("edgecenter_video_id")
+  edgecenterClientId String?    @map("edgecenter_client_id")
+
+  // Relations
+  category        Category      @relation(fields: [categoryId], references: [id])
+  series          Series?
+  videoFiles      VideoFile[]
+  tags            ContentTag[]
+  genres          ContentGenre[]
+  watchHistory    WatchHistory[]
+  playlistItems   PlaylistItem[]
+  subscriptionPlans SubscriptionPlan[]
+  subscriptionAccess SubscriptionAccess[]
+  comments        Comment[]
+
+  @@index([slug])
+  @@index([contentType])
+  @@index([categoryId])
+  @@index([ageCategory])
+  @@index([status])
+  @@index([publishedAt])
+  // Composite indexes for common query patterns
+  @@index([contentType, ageCategory, status])
+  @@index([categoryId, status, publishedAt])
+  @@index([status, publishedAt, ageCategory])
+  @@index([isFree, status, ageCategory])
+  @@map("content")
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  contentId String   @map("content_id")
+  userId    String   @map("user_id")
+  parentId  String?  @map("parent_id")
+  text      String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent  Comment? @relation("CommentReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  replies Comment[] @relation("CommentReplies")
+
+  @@index([contentId, createdAt])
+  @@index([userId])
+  @@index([parentId])
+  @@map("comments")
+}
+
+model Series {
+  id             String  @id @default(uuid())
+  contentId      String  @unique @map("content_id")
+  seasonNumber   Int     @default(1) @map("season_number")
+  episodeNumber  Int     @default(1) @map("episode_number")
+  parentSeriesId String? @map("parent_series_id")
+
+  content      Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  parentSeries Series?  @relation("SeriesEpisodes", fields: [parentSeriesId], references: [id])
+  episodes     Series[] @relation("SeriesEpisodes")
+
+  @@index([parentSeriesId])
+  @@map("series")
+}
+
+model VideoFile {
+  id             String         @id @default(uuid())
+  contentId      String         @map("content_id")
+  quality        VideoQuality
+  fileUrl        String         @map("file_url")
+  fileSize       BigInt         @map("file_size")
+  encodingStatus EncodingStatus @default(PENDING) @map("encoding_status")
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@unique([contentId, quality])
+  @@map("video_files")
+}
+
+model Category {
+  id       String  @id @default(uuid())
+  name     String
+  slug     String  @unique
+  parentId String? @map("parent_id")
+  iconUrl  String? @map("icon_url")
+  order    Int     @default(0)
+
+  parent   Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryHierarchy")
+  content  Content[]
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+model Tag {
+  id   String @id @default(uuid())
+  name String @unique
+  slug String @unique
+
+  content ContentTag[]
+
+  @@map("tags")
+}
+
+model ContentTag {
+  contentId String @map("content_id")
+  tagId     String @map("tag_id")
+
+  content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([contentId, tagId])
+  @@map("content_tags")
+}
+
+// ============================================
+// GENRES (User Preferences)
+// ============================================
+
+model Genre {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  color       String   @default("#C94BFF") // Default accent color
+  iconUrl     String?  @map("icon_url")
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  order       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  userPreferences UserGenrePreference[]
+  contentGenres   ContentGenre[]
+
+  @@index([slug])
+  @@index([isActive])
+  @@map("genres")
+}
+
+model UserGenrePreference {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  genreId   String   @map("genre_id")
+  color     String?  // Custom color override (null = use genre default)
+  order     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  genre Genre @relation(fields: [genreId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, genreId])
+  @@index([userId])
+  @@map("user_genre_preferences")
+}
+
+model ContentGenre {
+  contentId String @map("content_id")
+  genreId   String @map("genre_id")
+
+  content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  genre   Genre   @relation(fields: [genreId], references: [id], onDelete: Cascade)
+
+  @@id([contentId, genreId])
+  @@map("content_genres")
+}
+
+model WatchHistory {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  contentId       String   @map("content_id")
+  progressSeconds Int      @default(0) @map("progress_seconds")
+  completed       Boolean  @default(false)
+  lastWatchedAt   DateTime @default(now()) @map("last_watched_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, contentId])
+  @@index([userId])
+  @@index([lastWatchedAt])
+  @@index([userId, lastWatchedAt])
+  @@map("watch_history")
+}
+
+model Playlist {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  name      String
+  isPublic  Boolean  @default(false) @map("is_public")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items PlaylistItem[]
+
+  @@index([userId])
+  @@map("playlists")
+}
+
+model PlaylistItem {
+  playlistId String @map("playlist_id")
+  contentId  String @map("content_id")
+  order      Int    @default(0)
+
+  playlist Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  content  Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@id([playlistId, contentId])
+  @@map("playlist_items")
+}
+
+// ============================================
+// SUBSCRIPTIONS
+// ============================================
+
+enum SubscriptionPlanType {
+  SERIES
+  TUTORIAL
+  PREMIUM
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  PAUSED
+}
+
+model SubscriptionPlan {
+  id           String               @id @default(uuid())
+  name         String
+  description  String               @db.Text
+  type         SubscriptionPlanType
+  contentId    String?              @map("content_id") // For individual content subscriptions
+  price        Decimal              @db.Decimal(10, 2)
+  currency     String               @default("RUB")
+  durationDays Int                  @map("duration_days")
+  features     Json                 @default("[]")
+  isActive     Boolean              @default(true) @map("is_active")
+  createdAt    DateTime             @default(now()) @map("created_at")
+
+  content       Content?           @relation(fields: [contentId], references: [id])
+  subscriptions UserSubscription[]
+
+  @@index([type])
+  @@index([isActive])
+  @@map("subscription_plans")
+}
+
+model UserSubscription {
+  id          String             @id @default(uuid())
+  userId      String             @map("user_id")
+  planId      String             @map("plan_id")
+  status      SubscriptionStatus @default(ACTIVE)
+  startedAt   DateTime           @default(now()) @map("started_at")
+  expiresAt   DateTime           @map("expires_at")
+  autoRenew   Boolean            @default(true) @map("auto_renew")
+  cancelledAt DateTime?          @map("cancelled_at")
+
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan   SubscriptionPlan @relation(fields: [planId], references: [id])
+  access SubscriptionAccess[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("user_subscriptions")
+}
+
+model SubscriptionAccess {
+  id             String   @id @default(uuid())
+  subscriptionId String   @map("subscription_id")
+  contentId      String   @map("content_id")
+  grantedAt      DateTime @default(now()) @map("granted_at")
+  revokedAt      DateTime? @map("revoked_at")
+
+  subscription UserSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  content      Content          @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriptionId, contentId])
+  @@map("subscription_access")
+}
+
+// ============================================
+// PAYMENTS
+// ============================================
+
+enum PaymentMethodType {
+  CARD
+  SBP
+  BANK_TRANSFER
+  QR
+}
+
+enum TransactionType {
+  SUBSCRIPTION
+  STORE
+  BONUS_PURCHASE
+  WITHDRAWAL
+}
+
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+  EXPIRED
+  CANCELLED
+}
+
+model PaymentMethod {
+  id        String            @id @default(uuid())
+  userId    String            @map("user_id")
+  type      PaymentMethodType
+  details   Json              // Encrypted payment details
+  isDefault Boolean           @default(false) @map("is_default")
+  createdAt DateTime          @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("payment_methods")
+}
+
+model Transaction {
+  id                String            @id @default(uuid())
+  userId            String            @map("user_id")
+  type              TransactionType
+  amount            Decimal           @db.Decimal(12, 2)
+  currency          String            @default("RUB")
+  bonusAmountUsed   Decimal           @default(0) @map("bonus_amount_used") @db.Decimal(12, 2)
+  paymentMethod     PaymentMethodType @map("payment_method")
+  externalPaymentId String?           @map("external_payment_id")
+  status            TransactionStatus @default(PENDING)
+  metadata          Json              @default("{}")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  completedAt       DateTime?         @map("completed_at")
+
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invoice     Invoice?
+  commissions PartnerCommission[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([externalPaymentId])
+  @@index([createdAt])
+  // Composite indexes for common query patterns
+  @@index([userId, status, createdAt])
+  @@index([userId, type, status])
+  @@index([status, createdAt])
+  @@index([type, status, createdAt])
+  @@map("transactions")
+}
+
+model Invoice {
+  id            String        @id @default(uuid())
+  userId        String        @map("user_id")
+  transactionId String        @unique @map("transaction_id")
+  amount        Decimal       @db.Decimal(12, 2)
+  currency      String        @default("RUB")
+  dueDate       DateTime      @map("due_date")
+  bankDetails   Json          @map("bank_details")
+  qrCodeUrl     String?       @map("qr_code_url")
+  status        InvoiceStatus @default(PENDING)
+  paidAt        DateTime?     @map("paid_at")
+
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+
+  @@index([status])
+  @@index([dueDate])
+  @@map("invoices")
+}
+
+// ============================================
+// PARTNER PROGRAM
+// ============================================
+
+enum CommissionStatus {
+  PENDING
+  APPROVED
+  PAID
+  CANCELLED
+}
+
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  PROCESSING
+  COMPLETED
+  REJECTED
+}
+
+enum TaxStatus {
+  INDIVIDUAL
+  SELF_EMPLOYED
+  ENTREPRENEUR
+  COMPANY
+}
+
+model PartnerLevel {
+  id             String @id @default(uuid())
+  levelNumber    Int    @unique @map("level_number") // 1-5
+  name           String
+  commissionRate Decimal @map("commission_rate") @db.Decimal(5, 2) // Percentage
+  minReferrals   Int    @map("min_referrals")
+  minTeamVolume  Decimal @map("min_team_volume") @db.Decimal(12, 2)
+  benefits       Json   @default("[]")
+
+  @@map("partner_levels")
+}
+
+model PartnerRelationship {
+  id         String   @id @default(uuid())
+  partnerId  String   @map("partner_id")
+  referralId String   @map("referral_id")
+  level      Int      // Depth in tree (1-5)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  partner  User @relation("PartnerRelation", fields: [partnerId], references: [id], onDelete: Cascade)
+  referral User @relation("ReferralRelation", fields: [referralId], references: [id], onDelete: Cascade)
+
+  @@unique([partnerId, referralId])
+  @@index([partnerId])
+  @@index([referralId])
+  @@index([level])
+  @@map("partner_relationships")
+}
+
+model PartnerCommission {
+  id                  String           @id @default(uuid())
+  partnerId           String?          @map("partner_id")
+  sourceUserId        String           @map("source_user_id")
+  sourceTransactionId String           @map("source_transaction_id")
+  level               Int              // Commission level (1-5)
+  amount              Decimal          @db.Decimal(12, 2)
+  status              CommissionStatus @default(PENDING)
+  createdAt           DateTime         @default(now()) @map("created_at")
+  paidAt              DateTime?        @map("paid_at")
+
+  partner           User?       @relation("PartnerCommissions", fields: [partnerId], references: [id], onDelete: SetNull)
+  sourceUser        User        @relation("SourceUserCommissions", fields: [sourceUserId], references: [id])
+  sourceTransaction Transaction @relation(fields: [sourceTransactionId], references: [id])
+
+  @@unique([partnerId, sourceTransactionId, level])
+  @@index([partnerId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([partnerId, status, createdAt])
+  @@map("partner_commissions")
+}
+
+model WithdrawalRequest {
+  id              String           @id @default(uuid())
+  userId          String           @map("user_id")
+  amount          Decimal          @db.Decimal(12, 2)
+  currency        String           @default("RUB")
+  paymentDetails  Json             @map("payment_details")
+  taxStatus       TaxStatus        @map("tax_status")
+  taxAmount       Decimal          @map("tax_amount") @db.Decimal(12, 2)
+  status          WithdrawalStatus @default(PENDING)
+  processedById   String?          @map("processed_by_id")
+  processedAt     DateTime?        @map("processed_at")
+  rejectionReason String?          @map("rejection_reason")
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  user        User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  processedBy User? @relation("ProcessedWithdrawals", fields: [processedById], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@map("withdrawal_requests")
+}
+
+// ============================================
+// BONUS SYSTEM
+// ============================================
+
+enum BonusTransactionType {
+  EARNED
+  SPENT
+  WITHDRAWN
+  EXPIRED
+  ADJUSTMENT
+}
+
+enum BonusSource {
+  PARTNER
+  PROMO
+  REFUND
+  REFERRAL_BONUS
+  ACTIVITY
+}
+
+model BonusTransaction {
+  id            String               @id @default(uuid())
+  userId        String               @map("user_id")
+  type          BonusTransactionType
+  amount        Decimal              @db.Decimal(12, 2)
+  source        BonusSource
+  referenceId   String?              @map("reference_id")
+  referenceType String?              @map("reference_type")
+  description   String
+  expiresAt     DateTime?            @map("expires_at")
+  metadata      Json                 @default("{}")
+  createdAt     DateTime             @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+  @@index([expiresAt])
+  @@index([userId, type, createdAt])
+  @@map("bonus_transactions")
+}
+
+model BonusRate {
+  id           String    @id @default(uuid())
+  fromCurrency String    @map("from_currency")
+  toCurrency   String    @map("to_currency")
+  rate         Decimal   @db.Decimal(10, 4)
+  effectiveFrom DateTime @map("effective_from")
+  effectiveTo  DateTime? @map("effective_to")
+  isActive     Boolean   @default(true) @map("is_active")
+  createdById  String?   @map("created_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([effectiveFrom])
+  @@index([isActive])
+  @@map("bonus_rates")
+}
+
+enum BonusCampaignStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum BonusCampaignTargetType {
+  ALL
+  SEGMENT
+  INDIVIDUAL
+}
+
+model BonusCampaign {
+  id             String                   @id @default(uuid())
+  name           String
+  description    String?
+  bonusAmount    Decimal                  @map("bonus_amount") @db.Decimal(12, 2)
+  targetType     BonusCampaignTargetType  @map("target_type")
+  targetCriteria Json                     @default("{}") @map("target_criteria")
+  status         BonusCampaignStatus      @default(DRAFT)
+  startDate      DateTime                 @map("start_date")
+  endDate        DateTime?                @map("end_date")
+  expiryDays     Int?                     @map("expiry_days") // Days until bonuses expire after grant
+  usageLimit     Int?                     @map("usage_limit")
+  usedCount      Int                      @default(0) @map("used_count")
+  createdById    String                   @map("created_by_id")
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  executedAt     DateTime?                @map("executed_at")
+
+  @@index([status])
+  @@index([startDate])
+  @@map("bonus_campaigns")
+}
+
+model BonusWithdrawal {
+  id              String           @id @default(uuid())
+  userId          String           @map("user_id")
+  bonusAmount     Decimal          @map("bonus_amount") @db.Decimal(12, 2)
+  currencyAmount  Decimal          @map("currency_amount") @db.Decimal(12, 2)
+  rate            Decimal          @db.Decimal(10, 4)
+  taxStatus       TaxStatus        @map("tax_status")
+  taxAmount       Decimal          @map("tax_amount") @db.Decimal(12, 2)
+  netAmount       Decimal          @map("net_amount") @db.Decimal(12, 2)
+  paymentDetails  Json             @map("payment_details")
+  status          WithdrawalStatus @default(PENDING)
+  processedById   String?          @map("processed_by_id")
+  processedAt     DateTime?        @map("processed_at")
+  rejectionReason String?          @map("rejection_reason")
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  user        User  @relation("BonusWithdrawals", fields: [userId], references: [id], onDelete: Cascade)
+  processedBy User? @relation("ProcessedBonusWithdrawals", fields: [processedById], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@map("bonus_withdrawals")
+}
+
+model UserActivityBonus {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  activityType String   @map("activity_type")
+  grantedAt    DateTime @default(now()) @map("granted_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, activityType])
+  @@index([userId])
+  @@map("user_activity_bonuses")
+}
+
+// ============================================
+// STORE
+// ============================================
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  OUT_OF_STOCK
+  DISCONTINUED
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+model Product {
+  id                String        @id @default(uuid())
+  name              String
+  slug              String        @unique
+  description       String        @db.Text
+  categoryId        String        @map("category_id")
+  price             Decimal       @db.Decimal(10, 2)
+  bonusPrice        Decimal?      @map("bonus_price") @db.Decimal(10, 2)
+  allowsPartialBonus Boolean      @default(true) @map("allows_partial_bonus")
+  stockQuantity     Int           @default(0) @map("stock_quantity")
+  images            Json          @default("[]")
+  status            ProductStatus @default(DRAFT)
+  createdAt         DateTime      @default(now()) @map("created_at")
+
+  category   ProductCategory @relation(fields: [categoryId], references: [id])
+  orderItems OrderItem[]
+
+  @@index([slug])
+  @@index([categoryId])
+  @@index([status])
+  @@index([status, categoryId, createdAt])
+  @@map("products")
+}
+
+model ProductCategory {
+  id       String  @id @default(uuid())
+  name     String
+  slug     String  @unique
+  parentId String? @map("parent_id")
+  order    Int     @default(0)
+
+  parent   ProductCategory?  @relation("ProductCategoryHierarchy", fields: [parentId], references: [id])
+  children ProductCategory[] @relation("ProductCategoryHierarchy")
+  products Product[]
+
+  @@map("product_categories")
+}
+
+model Order {
+  id              String      @id @default(uuid())
+  userId          String      @map("user_id")
+  status          OrderStatus @default(PENDING)
+  totalAmount     Decimal     @map("total_amount") @db.Decimal(12, 2)
+  bonusAmountUsed Decimal     @default(0) @map("bonus_amount_used") @db.Decimal(12, 2)
+  shippingAddress Json        @map("shipping_address")
+  trackingNumber  String?     @map("tracking_number")
+  createdAt       DateTime    @default(now()) @map("created_at")
+
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items OrderItem[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  orderId         String  @map("order_id")
+  productId       String  @map("product_id")
+  quantity        Int
+  priceAtPurchase Decimal @map("price_at_purchase") @db.Decimal(10, 2)
+  bonusUsed       Decimal @default(0) @map("bonus_used") @db.Decimal(10, 2)
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@id([orderId, productId])
+  @@map("order_items")
+}
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+enum NotificationType {
+  EMAIL
+  PUSH
+  IN_APP
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  CANCELLED
+}
+
+model NotificationTemplate {
+  id           String           @id @default(uuid())
+  name         String
+  type         NotificationType
+  subject      String?
+  bodyTemplate String           @map("body_template") @db.Text
+  variables    Json             @default("[]")
+
+  notifications UserNotification[]
+
+  @@map("notification_templates")
+}
+
+model UserNotification {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  templateId String?  @map("template_id")
+  title      String
+  body       String   @db.Text
+  data       Json?
+  readAt     DateTime? @map("read_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user     User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template NotificationTemplate? @relation(fields: [templateId], references: [id])
+
+  @@index([userId])
+  @@index([readAt])
+  @@index([createdAt])
+  @@index([userId, readAt, createdAt])
+  @@map("user_notifications")
+}
+
+model NewsletterCampaign {
+  id          String         @id @default(uuid())
+  name        String
+  subject     String
+  body        String         @db.Text
+  filters     Json           @default("{}")
+  status      CampaignStatus @default(DRAFT)
+  sentCount   Int            @default(0) @map("sent_count")
+  scheduledAt DateTime?      @map("scheduled_at")
+  sentAt      DateTime?      @map("sent_at")
+
+  @@index([status])
+  @@index([scheduledAt])
+  @@map("newsletter_campaigns")
+}
+
+model NewsletterPreferences {
+  userId            String  @id @map("user_id")
+  emailMarketing    Boolean @default(true) @map("email_marketing")
+  emailUpdates      Boolean @default(true) @map("email_updates")
+  pushNotifications Boolean @default(true) @map("push_notifications")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("newsletter_preferences")
+}
+
+// ============================================
+// LEGAL DOCUMENTS
+// ============================================
+
+enum LegalDocumentType {
+  USER_AGREEMENT
+  OFFER
+  PRIVACY_POLICY
+  PARTNER_AGREEMENT
+  SUPPLEMENTARY
+}
+
+model LegalDocument {
+  id                String            @id @default(uuid())
+  type              LegalDocumentType
+  title             String
+  version           String
+  content           String            @db.Text
+  isActive          Boolean           @default(true) @map("is_active")
+  requiresAcceptance Boolean          @default(true) @map("requires_acceptance")
+  publishedAt       DateTime?         @map("published_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+
+  acceptances DocumentAcceptance[]
+
+  @@index([type])
+  @@index([isActive])
+  @@map("legal_documents")
+}
+
+model DocumentAcceptance {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  documentId String   @map("document_id")
+  ipAddress  String   @map("ip_address")
+  userAgent  String   @map("user_agent")
+  acceptedAt DateTime @default(now()) @map("accepted_at")
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document LegalDocument @relation(fields: [documentId], references: [id])
+
+  @@unique([userId, documentId])
+  @@index([userId])
+  @@index([documentId])
+  @@map("document_acceptances")
+}
+
+// ============================================
+// AUDIT LOG
+// ============================================
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?  @map("user_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id")
+  oldValue   Json?    @map("old_value")
+  newValue   Json?    @map("new_value")
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([entityType])
+  @@index([entityId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

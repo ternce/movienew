@@ -1,0 +1,5 @@
+# Downloaded test assets (fetched at runtime, not committed)
+*.mp4
+*.jpg
+*.png
+*.webm

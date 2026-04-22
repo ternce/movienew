@@ -1,0 +1,29 @@
+﻿npm error Lifecycle script `dev` failed with error:
+
+npm error path /app/apps/api
+npm error workspace @movie-platform/api@0.0.1
+npm error location /app/apps/api
+npm error command failed
+npm error signal SIGTERM
+npm error command sh -c nest start --watch --path tsconfig.build.json
+> @movie-platform/api@0.0.1 dev
+> nest start --watch --path tsconfig.build.json
+
+[2J[3J[H[7:22:26 PM] Starting compilation in watch mode...
+
+node:internal/modules/cjs/loader:1210
+  throw err;
+  ^
+System.Management.Automation.RemoteException
+Error: Cannot find module '/app/apps/api/dist/main'
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1207:15)
+    at Module._load (node:internal/modules/cjs/loader:1038:27)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:164:12)
+    at node:internal/main/run_main_module:28:49 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+System.Management.Automation.RemoteException
+Node.js v20.20.2
+[7:22:35 PM] Found 0 errors. Watching for file changes.
+

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>Новый вход в аккаунт</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      line-height: 1.6;
+      color: #F5F7FF;
+      background-color: #05060A;
+      margin: 0;
+      padding: 0;
+      -webkit-text-size-adjust: 100%;
+      -ms-text-size-adjust: 100%;
+    }
+    .wrapper {
+      width: 100%;
+      background-color: #05060A;
+      padding: 40px 0;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 0 20px;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    .logo {
+      font-size: 32px;
+      font-weight: bold;
+      background: linear-gradient(135deg, #C94BFF 0%, #28E0C4 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .content {
+      background-color: #10131C;
+      border-radius: 16px;
+      padding: 40px;
+      border: 1px solid #272B38;
+    }
+    .greeting {
+      font-size: 28px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: #F5F7FF;
+    }
+    .text {
+      color: #9CA2BC;
+      font-size: 16px;
+      margin-bottom: 16px;
+    }
+    .highlight {
+      color: #F5F7FF;
+    }
+    .info-card {
+      background-color: #151824;
+      border-radius: 12px;
+      padding: 24px;
+      margin: 24px 0;
+    }
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid #272B38;
+    }
+    .info-row:last-child {
+      border-bottom: none;
+    }
+    .info-label {
+      color: #5A6072;
+      font-size: 14px;
+    }
+    .info-value {
+      color: #F5F7FF;
+      font-size: 14px;
+      text-align: right;
+    }
+    .button {
+      display: inline-block;
+      background: linear-gradient(135deg, #C94BFF 0%, #28E0C4 100%);
+      color: #05060A !important;
+      padding: 16px 40px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 16px;
+      margin: 24px 0;
+    }
+    .button-secondary {
+      display: inline-block;
+      background-color: #272B38;
+      color: #F5F7FF !important;
+      padding: 12px 24px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 14px;
+      margin: 8px;
+    }
+    .warning {
+      background-color: #35141A;
+      border-radius: 12px;
+      padding: 20px;
+      margin: 24px 0;
+      border-left: 4px solid #FF9AA8;
+    }
+    .warning-title {
+      color: #FF9AA8;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .warning-text {
+      color: #FF9AA8;
+      font-size: 14px;
+      opacity: 0.9;
+    }
+    .success-badge {
+      display: inline-block;
+      background-color: #12352E;
+      color: #7CF2CF;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+      margin-bottom: 16px;
+    }
+    .footer {
+      text-align: center;
+      margin-top: 40px;
+      color: #5A6072;
+      font-size: 14px;
+    }
+    .footer a {
+      color: #9CA2BC;
+      text-decoration: none;
+    }
+    .actions {
+      text-align: center;
+      margin-top: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="container">
+      <div class="header">
+        <div class="logo">{{appName}}</div>
+      </div>
+
+      <div class="content">
+        <span class="success-badge">&#128274; Уведомление о безопасности</span>
+
+        <div class="greeting">Новый вход в аккаунт</div>
+
+        <p class="text">
+          Здравствуйте, {{firstName}}! Мы зафиксировали новый вход в вашу учетную запись.
+        </p>
+
+        <div class="info-card">
+          <div class="info-row">
+            <span class="info-label">Время входа</span>
+            <span class="info-value">{{loginTime}}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">IP-адрес</span>
+            <span class="info-value">{{ipAddress}}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Устройство</span>
+            <span class="info-value">{{deviceInfo}}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Местоположение</span>
+            <span class="info-value">{{location}}</span>
+          </div>
+        </div>
+
+        <div class="warning">
+          <div class="warning-title">&#128680; Это были не вы?</div>
+          <div class="warning-text">
+            Если вы не выполняли этот вход, немедленно измените пароль и проверьте
+            настройки безопасности вашего аккаунта. Рекомендуем также завершить
+            все активные сессии.
+          </div>
+        </div>
+
+        <div class="actions">
+          <a href="{{securitySettingsUrl}}" class="button">Проверить безопасность</a>
+        </div>
+
+        <p class="text" style="font-size: 14px; text-align: center; margin-top: 24px;">
+          Если у вас возникли вопросы или вы обнаружили подозрительную активность,
+          свяжитесь с нами: <a href="mailto:{{supportEmail}}" style="color: #C94BFF; text-decoration: none;">{{supportEmail}}</a>
+        </p>
+      </div>
+
+      <div class="footer">
+        <p>Это автоматическое уведомление о безопасности.</p>
+        <p>&copy; {{year}} {{appName}}. Все права защищены.</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

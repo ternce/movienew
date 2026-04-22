@@ -1,0 +1,9 @@
+# Exclude test files from Turbo cache hashing
+**/*.spec.ts
+**/*.test.ts
+**/*.test.tsx
+**/test/**
+**/tests/**
+**/__tests__/**
+*.md
+!CLAUDE.md

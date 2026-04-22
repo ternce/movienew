@@ -1,0 +1,29 @@
+FROM node:20-alpine
+
+# Install build dependencies for native modules (bcrypt, etc.) and OpenSSL for Prisma
+RUN apk add --no-cache openssl python3 make g++ ffmpeg
+
+WORKDIR /app
+
+# Install dependencies first (cached layer)
+COPY package*.json ./
+COPY apps/api/package*.json ./apps/api/
+COPY packages/shared/package*.json ./packages/shared/
+COPY packages/typescript-config/package*.json ./packages/typescript-config/
+
+RUN npm install
+
+# Rebuild native modules for the container's architecture
+RUN npm rebuild bcrypt
+
+# Copy source code (will be overwritten by volume mount for source directories)
+COPY . .
+
+# Generate Prisma client
+RUN npm run db:generate --workspace=apps/api
+
+WORKDIR /app/apps/api
+
+EXPOSE 4000
+
+CMD ["npm", "run", "dev"]

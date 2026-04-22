@@ -1,0 +1,51 @@
+# Dependencies - exclude to ensure native modules are built for container architecture
+node_modules
+**/node_modules
+
+# Build outputs
+dist
+**/dist
+.next
+**/.next
+
+# Development files
+.git
+.gitignore
+*.md
+!README.md
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test files
+coverage
+**/.nyc_output
+tests
+**/test-results
+**/playwright-report
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files (security)
+.env
+.env.*
+!.env.example
+
+# Claude / AI tooling
+.claude
+.playwright-mcp
+
+# Backups
+backups
+
+# Docker files (avoid recursive context)
+docker-compose*.yml
