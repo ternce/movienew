@@ -7,6 +7,7 @@ import { ContentGrid } from "@/components/ui/grid";
 import {
   SeriesCard,
   ClipCard,
+  ShortPreviewCard,
   TutorialCard,
   VideoCardSkeletonGrid,
 } from "@/components/content";
@@ -39,13 +40,30 @@ function SearchResultCard({ item }: { item: SearchResultItem }) {
   const categoryName = getCategoryName(item.category);
 
   switch (item.contentType) {
-    case "CLIP":
     case "SHORT":
+      return (
+        <ShortPreviewCard
+          content={{
+            id: item.id,
+            slug: item.slug,
+            title: item.title,
+            thumbnailUrl: item.thumbnailUrl,
+            duration: item.duration ?? 0,
+            viewCount: item.viewCount ?? 0,
+            rating: item.averageRating ?? item.rating,
+            ageCategory: item.ageCategory,
+            category: categoryName,
+            creator: item.creator,
+          }}
+        />
+      );
+    case "CLIP":
       return (
         <ClipCard
           content={{
             id: item.id,
             slug: item.slug,
+            contentType: item.contentType,
             title: item.title,
             thumbnailUrl: item.thumbnailUrl,
             duration: item.duration ?? 0,

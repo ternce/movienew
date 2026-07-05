@@ -659,8 +659,9 @@ function getContentTypeLabel(type?: string) {
 
 function getContentHref(content: DashboardCardContent) {
   const slug = content.slug || content.id;
+  const type = (content.type || "").toUpperCase();
 
-  switch (content.type) {
+  switch (type) {
     case "SERIES":
       return `/series/${slug}`;
     case "TUTORIAL":

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ShortsFeed } from './shorts-feed';
@@ -33,6 +33,18 @@ vi.mock('@/hooks/use-streaming', () => ({
 describe('ShortsFeed', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState(null, '', '/shorts');
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      value: (callback: FrameRequestCallback) => {
+        callback(0);
+        return 1;
+      },
+    });
+    Object.defineProperty(window, 'cancelAnimationFrame', {
+      configurable: true,
+      value: vi.fn(),
+    });
     Object.defineProperty(window, 'innerHeight', {
       configurable: true,
       value: 768,
@@ -125,6 +137,44 @@ describe('ShortsFeed', () => {
     expect(cards[0]?.getAttribute('data-preload')).toBe('auto');
     expect(cards[1]?.getAttribute('data-preload')).toBe('metadata');
     expect(cards[2]?.getAttribute('data-preload')).toBe('metadata');
+  });
+
+  it('updates the URL with replaceState when the active short changes', async () => {
+    const replaceSpy = vi.spyOn(window.history, 'replaceState');
+    mockUseContentInfinite.mockReturnValue({
+      data: {
+        pages: [
+          {
+            items: [
+              { id: 'short-1', slug: 'one', title: 'One', contentType: 'SHORT' },
+              { id: 'short-2', slug: 'two', title: 'Two', contentType: 'SHORT' },
+              { id: 'short-3', slug: 'three', title: 'Three', contentType: 'SHORT' },
+            ],
+          },
+        ],
+      },
+      isLoading: false,
+      fetchNextPage: vi.fn(),
+      hasNextPage: false,
+      isFetchingNextPage: false,
+    });
+
+    const { container } = render(<ShortsFeed />);
+
+    await waitFor(() => {
+      expect(replaceSpy.mock.calls.some((call) => call[2] === '/shorts/one')).toBe(true);
+    });
+
+    const scrollContainer = container.querySelector('.overflow-y-scroll') as HTMLDivElement;
+    Object.defineProperty(scrollContainer, 'scrollTop', {
+      configurable: true,
+      value: 768,
+    });
+    fireEvent.scroll(scrollContainer);
+
+    await waitFor(() => {
+      expect(replaceSpy.mock.calls.some((call) => call[2] === '/shorts/two')).toBe(true);
+    });
   });
 
   it('shows an error state when the direct short cannot be resolved', () => {

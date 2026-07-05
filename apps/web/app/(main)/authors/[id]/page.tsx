@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 
 import { ClipCard } from "@/components/content/clip-card";
 import { ContentImage } from "@/components/content/content-image";
+import { ShortPreviewCard } from "@/components/content/short-preview-card";
 import type { AgeCategory } from "@/components/content/age-badge";
 import { Container } from "@/components/ui/container";
 import { API_BASE_URL } from "@/lib/api";
@@ -40,6 +41,7 @@ interface PublicAuthorVideo {
   id: string;
   slug: string;
   title: string;
+  contentType?: string | null;
   thumbnailUrl?: string | null;
   duration: number;
   viewCount: number;
@@ -260,35 +262,62 @@ function VideoSection({
       </h2>
       {videos.length > 0 ? (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {videos.map((video) => (
-            <ClipCard
-              key={video.id}
-              content={{
-                id: video.id,
-                slug: video.slug,
-                title: video.title,
-                thumbnailUrl: video.thumbnailUrl || "/images/movie-placeholder.jpg",
-                duration: video.duration,
-                viewCount: video.viewCount,
-                ageCategory: video.ageCategory,
-                category:
-                  typeof video.category === "object"
-                    ? video.category?.name
-                    : undefined,
-                rating: video.averageRating ?? video.rating,
-                creator: {
-                  id: author.id,
-                  username: author.username,
-                  displayName: author.displayName,
-                  avatarUrl: author.avatarUrl,
-                  authorUrl: author.authorUrl,
-                  totalVideos: author.totalVideos ?? author.totalPublishedVideos,
-                  totalViews: author.totalViews,
-                  subscriberCount: author.subscriberCount,
-                },
-              }}
-            />
-          ))}
+          {videos.map((video) => {
+            const creator = {
+              id: author.id,
+              username: author.username,
+              displayName: author.displayName,
+              avatarUrl: author.avatarUrl,
+              authorUrl: author.authorUrl,
+              totalVideos: author.totalVideos ?? author.totalPublishedVideos,
+              totalViews: author.totalViews,
+              subscriberCount: author.subscriberCount,
+            };
+            const category =
+              typeof video.category === "object"
+                ? video.category?.name
+                : undefined;
+            const isShort = String(video.contentType || "").toUpperCase() === "SHORT";
+
+            if (isShort) {
+              return (
+                <ShortPreviewCard
+                  key={video.id}
+                  content={{
+                    id: video.id,
+                    slug: video.slug,
+                    title: video.title,
+                    thumbnailUrl: video.thumbnailUrl,
+                    duration: video.duration,
+                    viewCount: video.viewCount,
+                    ageCategory: video.ageCategory,
+                    category,
+                    rating: video.averageRating ?? video.rating,
+                    creator,
+                  }}
+                />
+              );
+            }
+
+            return (
+              <ClipCard
+                key={video.id}
+                content={{
+                  id: video.id,
+                  slug: video.slug,
+                  contentType: video.contentType || "CLIP",
+                  title: video.title,
+                  thumbnailUrl: video.thumbnailUrl || "/images/movie-placeholder.jpg",
+                  duration: video.duration,
+                  viewCount: video.viewCount,
+                  ageCategory: video.ageCategory,
+                  category,
+                  rating: video.averageRating ?? video.rating,
+                  creator,
+                }}
+              />
+            );
+          })}
         </div>
       ) : (
         <div className="rounded-lg border border-dashed border-mp-border bg-mp-surface/40 px-6 py-10 text-center text-mp-text-secondary">

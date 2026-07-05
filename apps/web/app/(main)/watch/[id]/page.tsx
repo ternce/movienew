@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   CaretLeft,
   ThumbsUp,
@@ -23,7 +23,7 @@ import { VideoPlayerSkeleton } from "@/components/player";
 import { ContentComments, ContentImage } from "@/components/content";
 import { cn, copyTextToClipboard } from "@/lib/utils";
 import { normalizeMediaUrl } from "@/lib/media-url";
-import { getPublicContentUrl } from "@/lib/public-content-url";
+import { getPublicContentPath, getPublicContentUrl } from "@/lib/public-content-url";
 import { useStreamUrl } from "@/hooks/use-streaming";
 import { useContentDetail } from "@/hooks/use-content";
 import {
@@ -71,7 +71,9 @@ function formatDuration(seconds: number): string {
 export default function WatchPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const contentId = params.id as string;
+  const isPreview = searchParams.get("preview") === "1";
 
   const queryClient = useQueryClient();
   const [showFullDescription, setShowFullDescription] = React.useState(false);
@@ -104,6 +106,27 @@ export default function WatchPage() {
   const unlikeContent = useUnlikeContent(contentId);
   const liked = likeStatus.data?.liked ?? false;
   const likeCount = likeStatus.data?.likeCount ?? contentDetail?.likeCount ?? 0;
+  const resolvedContentType = String(
+    contentDetail?.contentType || streamData?.contentType || "",
+  ).toUpperCase();
+  const shouldRedirectShort = resolvedContentType === "SHORT" && !isPreview;
+
+  React.useEffect(() => {
+    if (!shouldRedirectShort) return;
+    router.replace(
+      getPublicContentPath({
+        id: contentDetail?.id || contentId,
+        slug: contentDetail?.slug,
+        contentType: "SHORT",
+      }),
+    );
+  }, [
+    contentDetail?.id,
+    contentDetail?.slug,
+    contentId,
+    router,
+    shouldRedirectShort,
+  ]);
 
   React.useEffect(() => {
     setNextEpisode(null);
@@ -119,6 +142,7 @@ export default function WatchPage() {
 
   React.useEffect(() => {
     if (!contentId) return;
+    if (shouldRedirectShort) return;
     if (hasRecordedViewRef.current) return;
 
     const status = (streamError as ApiError | undefined)?.status;
@@ -130,7 +154,7 @@ export default function WatchPage() {
         // Non-critical
       });
     }
-  }, [contentId, streamData?.streamUrl, streamError]);
+  }, [contentId, shouldRedirectShort, streamData?.streamUrl, streamError]);
 
   // Save watch progress
   const handleProgress = React.useCallback(
@@ -246,6 +270,21 @@ export default function WatchPage() {
       setDisliked(false);
     }
   }, [isAuthenticated, likeContent, liked, unlikeContent]);
+
+  if (shouldRedirectShort) {
+    return (
+      <div className="min-h-screen bg-transparent">
+        <div className="border-b border-mp-border bg-mp-bg-secondary/50 h-14" />
+        <div className="w-full bg-black">
+          <Container size="full" className="px-0 md:px-6 lg:px-8">
+            <div className="max-w-[1600px] mx-auto">
+              <VideoPlayerSkeleton />
+            </div>
+          </Container>
+        </div>
+      </div>
+    );
+  }
 
   // Access denied (403) — show subscription CTA
   if (error) {

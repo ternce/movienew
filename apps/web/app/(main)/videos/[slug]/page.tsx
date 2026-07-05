@@ -2,7 +2,8 @@
 
 import { Clock, Eye, FilmStrip, Play } from "@phosphor-icons/react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import * as React from "react";
 
 import { AgeBadge, type AgeCategory } from "@/components/content/age-badge";
 import { ClipCard } from "@/components/content/clip-card";
@@ -15,16 +16,31 @@ import { Container } from "@/components/ui/container";
 import { ContentGrid } from "@/components/ui/grid";
 import { Spinner } from "@/components/ui/spinner";
 import { useContentDetail, useContentList } from "@/hooks/use-content";
+import { getPublicContentPath } from "@/lib/public-content-url";
 import { formatDuration, formatViewCount } from "@/lib/utils";
 
 export default function VideoDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const slug = params.slug as string;
 
   const { data: video, isLoading } = useContentDetail(slug);
   const { data: relatedData } = useContentList({ type: "CLIP", limit: 8 });
   const relatedVideos =
     relatedData?.data?.items?.filter((item) => item.slug !== slug) ?? [];
+
+  const isShort = String(video?.contentType || "").toUpperCase() === "SHORT";
+
+  React.useEffect(() => {
+    if (!video || !isShort) return;
+    router.replace(
+      getPublicContentPath({
+        id: video.id,
+        slug: video.slug || slug,
+        contentType: "SHORT",
+      }),
+    );
+  }, [isShort, router, slug, video]);
 
   if (isLoading) {
     return (
@@ -46,6 +62,14 @@ export default function VideoDetailPage() {
         <Button variant="outline" asChild>
           <Link href="/videos">Все видео</Link>
         </Button>
+      </Container>
+    );
+  }
+
+  if (isShort) {
+    return (
+      <Container size="lg" className="flex justify-center py-12">
+        <Spinner size="xl" />
       </Container>
     );
   }

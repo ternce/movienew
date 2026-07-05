@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useWatchlist, useRemoveFromWatchlist } from '@/hooks/use-account';
+import { getPublicContentPath } from '@/lib/public-content-url';
 import { cn } from '@/lib/utils';
 
 // ==============================
@@ -288,9 +289,11 @@ export default function WatchlistPage() {
                 const contentId = content.id || item.contentId;
                 const contentSlug = content.slug;
                 const contentType = content.contentType || 'SERIES';
-                const linkPath = contentType === 'TUTORIAL'
-                  ? `/tutorials/${contentSlug || contentId}`
-                  : `/series/${contentSlug || contentId}`;
+                const linkPath = getPublicContentPath({
+                  id: contentId,
+                  slug: contentSlug,
+                  contentType,
+                });
 
                 return (
                   <div key={item.id || contentId} className="group relative">
@@ -355,9 +358,11 @@ export default function WatchlistPage() {
                 const contentId = content.id || item.contentId;
                 const contentSlug = content.slug;
                 const contentType = content.contentType || 'SERIES';
-                const linkPath = contentType === 'TUTORIAL'
-                  ? `/tutorials/${contentSlug || contentId}`
-                  : `/series/${contentSlug || contentId}`;
+                const linkPath = getPublicContentPath({
+                  id: contentId,
+                  slug: contentSlug,
+                  contentType,
+                });
 
                 return (
                   <Card key={item.id || contentId} className="group transition-colors hover:border-mp-border/80">

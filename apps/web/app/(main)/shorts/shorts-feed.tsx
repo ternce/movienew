@@ -6,6 +6,7 @@ import { CaretUp, CaretDown } from '@phosphor-icons/react';
 import { ShortCard, type ShortContent } from '@/components/content';
 import { useContentDetail, useContentInfinite } from '@/hooks/use-content';
 import { usePrefetchStreamUrls } from '@/hooks/use-streaming';
+import { getPublicContentPath } from '@/lib/public-content-url';
 import { cn } from '@/lib/utils';
 import {
   isSameShort,
@@ -37,6 +38,7 @@ export function ShortsFeed({ initialShortSlug }: ShortsFeedProps) {
   const viewportRef = React.useRef<HTMLDivElement>(null);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   const scrollFrameRef = React.useRef(0);
+  const lastSyncedPathRef = React.useRef('');
 
   const {
     data,
@@ -82,6 +84,26 @@ export function ShortsFeed({ initialShortSlug }: ShortsFeedProps) {
     [activeIndex, shorts],
   );
   usePrefetchStreamUrls(streamPrefetchIds);
+
+  const activeShort = shorts[activeIndex];
+
+  React.useEffect(() => {
+    if (!activeShort?.id) return;
+    if (typeof window === 'undefined') return;
+
+    const nextPath = getPublicContentPath({
+      id: activeShort.id,
+      slug: activeShort.slug,
+      contentType: 'SHORT',
+    });
+    if (window.location.pathname === nextPath || lastSyncedPathRef.current === nextPath) {
+      lastSyncedPathRef.current = nextPath;
+      return;
+    }
+
+    window.history.replaceState(window.history.state, '', nextPath);
+    lastSyncedPathRef.current = nextPath;
+  }, [activeShort?.id, activeShort?.slug]);
 
   const scrollToIndex = React.useCallback((index: number) => {
     const container = scrollContainerRef.current;

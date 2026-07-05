@@ -69,6 +69,12 @@ describe('ClipCard', () => {
       expect(links[0]).toHaveAttribute('href', '/videos/test-clip');
     });
 
+    it('should link short content to the Shorts feed', () => {
+      render(<ClipCard content={{ ...mockClip, contentType: 'SHORT' }} />);
+      const links = screen.getAllByRole('link');
+      expect(links[0]).toHaveAttribute('href', '/shorts/test-clip');
+    });
+
     it('should render a clickable author link when creator data exists', () => {
       render(
         <ClipCard

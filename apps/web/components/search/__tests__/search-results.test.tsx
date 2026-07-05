@@ -12,6 +12,19 @@ vi.mock('@/components/content', () => ({
   SeriesCard: ({ content }: { content: { id: string; title: string } }) => (
     <div data-testid={`series-card-${content.id}`}>{content.title}</div>
   ),
+  ClipCard: ({ content }: { content: { id: string; title: string; slug: string } }) => (
+    <a data-testid={`clip-card-${content.id}`} href={`/videos/${content.slug}`}>
+      {content.title}
+    </a>
+  ),
+  ShortPreviewCard: ({ content }: { content: { id: string; title: string; slug: string } }) => (
+    <a data-testid={`short-card-${content.id}`} href={`/shorts/${content.slug}`}>
+      {content.title}
+    </a>
+  ),
+  TutorialCard: ({ content }: { content: { id: string; title: string } }) => (
+    <div data-testid={`tutorial-card-${content.id}`}>{content.title}</div>
+  ),
   VideoCardSkeletonGrid: ({ count }: { count: number }) => (
     <div data-testid="skeleton-grid">Loading {count} items...</div>
   ),
@@ -185,6 +198,31 @@ describe('SearchResults', () => {
 
       expect(screen.getByTestId('series-card-1')).toBeInTheDocument();
       expect(screen.getByTestId('series-card-2')).toBeInTheDocument();
+    });
+
+    it('should link short results to the Shorts feed', () => {
+      render(
+        <SearchResults
+          query="short"
+          results={[
+            {
+              id: 'short-1',
+              title: 'Short Result',
+              slug: 'short-result',
+              contentType: 'SHORT',
+              ageCategory: '16+',
+              thumbnailUrl: '/short.jpg',
+            },
+          ] as any}
+          isLoading={false}
+          totalResults={1}
+        />
+      );
+
+      expect(screen.getByTestId('short-card-short-1')).toHaveAttribute(
+        'href',
+        '/shorts/short-result',
+      );
     });
 
     it('should apply custom className', () => {

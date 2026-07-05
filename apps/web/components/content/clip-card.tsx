@@ -9,12 +9,14 @@ import { ContentImage } from "@/components/content/content-image";
 import { HoverVideoPreview } from "@/components/content/hover-video-preview";
 import { RatingBadge } from "@/components/ui/rating-badge";
 import type { CreatorInput } from "@/lib/author-identity";
+import { getPublicContentPath } from "@/lib/public-content-url";
 import { cn, formatDuration, formatViewCount } from "@/lib/utils";
 
 export interface ClipContent {
   id: string;
   slug: string;
   title: string;
+  contentType?: string;
   thumbnailUrl: string;
   duration: number; // seconds
   viewCount: number;
@@ -27,12 +29,24 @@ export interface ClipContent {
 interface ClipCardProps {
   content: ClipContent;
   className?: string;
+  href?: string;
 }
 
 /**
  * Clip card with duration badge, view count, and hover play button
  */
-export function ClipCard({ content, className }: ClipCardProps) {
+export function ClipCard({ content, className, href }: ClipCardProps) {
+  const isShort = String(content.contentType || "").toUpperCase() === "SHORT";
+  const contentHref =
+    href ||
+    (isShort
+      ? getPublicContentPath({
+          id: content.id,
+          slug: content.slug,
+          contentType: "SHORT",
+        })
+      : `/videos/${content.slug}`);
+
   return (
     <article className={cn("sesh-content-card sesh-clip-card group block shrink-0 content-card w-full", className)}>
       {/* Thumbnail */}
@@ -85,15 +99,16 @@ export function ClipCard({ content, className }: ClipCardProps) {
         <HoverVideoPreview
           contentId={content.id}
           title={content.title}
-          href={`/videos/${content.slug}`}
+          href={contentHref}
+          contentType={content.contentType}
           duration={content.duration}
         />
-        <Link href={`/videos/${content.slug}`} className="absolute inset-0 z-10" aria-label={content.title} />
+        <Link href={contentHref} className="absolute inset-0 z-10" aria-label={content.title} />
       </div>
 
       {/* Content info */}
       <div className="flex min-h-[78px] flex-col">
-        <Link href={`/videos/${content.slug}`} className="block">
+        <Link href={contentHref} className="block">
           <h3 className="line-clamp-2 font-medium leading-tight text-mp-text-primary transition-colors duration-200 group-hover:text-mp-accent-tertiary">
             {content.title}
           </h3>

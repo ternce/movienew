@@ -18,6 +18,7 @@ export {
   type SeriesContent,
 } from "./series-card";
 export { ShortCard, type ShortContent } from "./short-card";
+export { ShortPreviewCard, type ShortPreviewContent } from "./short-preview-card";
 export {
   TutorialCard,
   TutorialCardProgress,
