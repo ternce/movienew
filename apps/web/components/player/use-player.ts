@@ -25,8 +25,11 @@ export type PlaybackRemoteCommand = {
   id: string | number;
   type: "state" | "play" | "pause" | "seek";
   currentTime: number;
+  authoritativeCurrentTime?: number;
   playbackStatus?: "PLAYING" | "PAUSED";
   playbackRate?: number;
+  serverTime?: string;
+  serverClockOffsetMs?: number;
 };
 
 export type PlaybackLocalAction = {
@@ -46,7 +49,11 @@ function mapQualityLevel(height: number): VideoQuality {
   return "240p";
 }
 
-const REMOTE_COMMAND_SEEK_THRESHOLD_SECONDS = 1.5;
+const PLAYING_DRIFT_IGNORE_SECONDS = 0.15;
+const PLAYING_DRIFT_HARD_SECONDS = 0.75;
+const PAUSED_DRIFT_EPSILON_SECONDS = 0.025;
+const SOFT_CORRECTION_RATE_DELTA = 0.03;
+const SOFT_CORRECTION_DURATION_MS = 1600;
 const ENDED_REPLAY_EPSILON_SECONDS = 0.5;
 
 function getRemotePlaybackStatus(command: PlaybackRemoteCommand) {
@@ -65,6 +72,29 @@ function getClampedPlaybackTime(video: HTMLVideoElement, time: number) {
     ? video.duration
     : Number.POSITIVE_INFINITY;
   return Math.max(0, Math.min(time, duration));
+}
+
+function getCommandPlaybackRate(command: PlaybackRemoteCommand) {
+  return typeof command.playbackRate === "number" && command.playbackRate > 0
+    ? command.playbackRate
+    : 1;
+}
+
+function getCommandTargetTime(command: PlaybackRemoteCommand) {
+  const status = getRemotePlaybackStatus(command);
+  const baseTime =
+    typeof command.authoritativeCurrentTime === "number"
+      ? command.authoritativeCurrentTime
+      : command.currentTime;
+
+  if (status !== "PLAYING") return baseTime;
+
+  const serverTimeMs = command.serverTime ? Date.parse(command.serverTime) : Number.NaN;
+  if (!Number.isFinite(serverTimeMs)) return command.currentTime;
+
+  const serverNowMs = Date.now() + (command.serverClockOffsetMs || 0);
+  const elapsedSeconds = Math.max(0, (serverNowMs - serverTimeMs) / 1000);
+  return baseTime + elapsedSeconds * getCommandPlaybackRate(command);
 }
 
 function shouldRestartEndedPlayback(video: HTMLVideoElement, targetTime: number) {
@@ -106,6 +136,9 @@ export function usePlayer({
   const remoteCommandVersionRef = useRef(0);
   const latestRemoteCommandRef = useRef<PlaybackRemoteCommand | null>(null);
   const pendingRemoteCommandRef = useRef<PlaybackRemoteCommand | null>(null);
+  const softCorrectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   // Native media events fired while HLS is replacing/attaching a source are not
   // user playback intent. Treating those pause/play events as host commands can
   // create a PLAYING -> PAUSED feedback loop after Watch Party changes content.
@@ -159,21 +192,56 @@ export function usePlayer({
     isControlsVisible,
   } = usePlayerStore();
 
+  const clearSoftCorrection = useCallback(
+    (playbackRate?: number) => {
+      if (softCorrectionTimerRef.current) {
+        clearTimeout(softCorrectionTimerRef.current);
+        softCorrectionTimerRef.current = null;
+      }
+
+      const video = videoRef.current;
+      if (
+        video &&
+        typeof playbackRate === "number" &&
+        playbackRate > 0 &&
+        video.playbackRate !== playbackRate
+      ) {
+        video.playbackRate = playbackRate;
+      }
+    },
+    [],
+  );
+
+  const applySoftCorrection = useCallback(
+    (baseRate: number, drift: number) => {
+      const video = videoRef.current;
+      if (!video) return;
+
+      clearSoftCorrection();
+      const correctionRate =
+        baseRate * (drift > 0 ? 1 + SOFT_CORRECTION_RATE_DELTA : 1 - SOFT_CORRECTION_RATE_DELTA);
+      video.playbackRate = Math.max(0.1, correctionRate);
+      softCorrectionTimerRef.current = setTimeout(() => {
+        if (videoRef.current === video) {
+          video.playbackRate = baseRate;
+        }
+        softCorrectionTimerRef.current = null;
+      }, SOFT_CORRECTION_DURATION_MS);
+    },
+    [clearSoftCorrection],
+  );
+
   const applyRemotePlaybackCommand = useCallback(
     async (command: PlaybackRemoteCommand, version: number) => {
       const video = videoRef.current;
       if (!video) return;
 
       const status = getRemotePlaybackStatus(command);
-      const targetTime = Number(command.currentTime);
+      const targetTime = Number(getCommandTargetTime(command));
+      const playbackRate = getCommandPlaybackRate(command);
       suppressPlaybackActionRef.current = true;
 
-      if (
-        typeof command.playbackRate === "number" &&
-        command.playbackRate > 0
-      ) {
-        video.playbackRate = command.playbackRate;
-      }
+      video.playbackRate = playbackRate;
 
       if (!hasMetadata(video)) {
         pendingRemoteCommandRef.current = command;
@@ -194,11 +262,26 @@ export function usePlayer({
         }
 
         const drift = Math.abs(video.currentTime - nextTime);
-        if (
-          drift > REMOTE_COMMAND_SEEK_THRESHOLD_SECONDS ||
-          video.ended ||
-          command.type === "seek"
-        ) {
+        if (status === "PAUSED" || command.type === "seek") {
+          clearSoftCorrection(playbackRate);
+          if (drift > PAUSED_DRIFT_EPSILON_SECONDS || video.ended) {
+            video.currentTime = nextTime;
+            setCurrentTime(video.currentTime);
+          }
+        } else if (status === "PLAYING") {
+          if (
+            drift > PLAYING_DRIFT_HARD_SECONDS ||
+            video.ended ||
+            command.type === "play"
+          ) {
+            clearSoftCorrection(playbackRate);
+            video.currentTime = nextTime;
+            setCurrentTime(video.currentTime);
+          } else if (drift > PLAYING_DRIFT_IGNORE_SECONDS) {
+            applySoftCorrection(playbackRate, nextTime - video.currentTime);
+          }
+        } else if (drift > PLAYING_DRIFT_HARD_SECONDS || video.ended) {
+          clearSoftCorrection(playbackRate);
           video.currentTime = nextTime;
           setCurrentTime(video.currentTime);
         }
@@ -234,6 +317,7 @@ export function usePlayer({
           }
         }
       } else if (status === "PAUSED") {
+        clearSoftCorrection(playbackRate);
         if (!video.paused) {
           video.pause();
         }
@@ -247,7 +331,7 @@ export function usePlayer({
         }, 250);
       }
     },
-    [setCurrentTime, setEnded, setError],
+    [applySoftCorrection, clearSoftCorrection, setCurrentTime, setEnded, setError],
   );
 
   // Initialize HLS.js
@@ -371,6 +455,7 @@ export function usePlayer({
     video.addEventListener("canplay", releaseSourceTransition, { once: true });
 
     return () => {
+      clearSoftCorrection();
       video.removeEventListener("canplay", releaseSourceTransition);
       if (sourceTransitionReleaseRef.current) {
         clearTimeout(sourceTransitionReleaseRef.current);
@@ -384,6 +469,7 @@ export function usePlayer({
     };
   }, [
     src,
+    clearSoftCorrection,
     setAvailableQualities,
     setQuality,
     setError,

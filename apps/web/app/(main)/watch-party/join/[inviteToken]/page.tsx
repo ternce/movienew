@@ -58,8 +58,11 @@ type RemoteCommand = {
   id: string | number;
   type: "state" | "play" | "pause" | "seek";
   currentTime: number;
+  authoritativeCurrentTime?: number;
   playbackStatus?: "PLAYING" | "PAUSED";
   playbackRate?: number;
+  serverTime?: string;
+  serverClockOffsetMs?: number;
 } | null;
 
 type VoteEpisode = {
@@ -144,12 +147,30 @@ type JoinStatus =
   | "not-found"
   | "ended";
 
-function getEffectiveTime(state: WatchPartyPlaybackState) {
+type PlaybackTiming = {
+  serverClockOffsetMs: number;
+};
+
+function getServerTimeMs(state: WatchPartyPlaybackState) {
+  const serverTime = new Date(state.serverTime || state.updatedAt).getTime();
+  return Number.isFinite(serverTime) ? serverTime : Date.now();
+}
+
+function getAuthoritativeCurrentTime(state: WatchPartyPlaybackState) {
+  if (state.playbackStatus !== "PLAYING") return state.currentTime || 0;
+  return state.effectiveCurrentTime || state.currentTime || 0;
+}
+
+function getEffectiveTime(
+  state: WatchPartyPlaybackState,
+  timing?: PlaybackTiming,
+) {
   if (state.playbackStatus !== "PLAYING") return state.currentTime || 0;
 
-  const serverTime = new Date(state.serverTime || state.updatedAt).getTime();
-  const elapsed = Math.max(0, (Date.now() - serverTime) / 1000);
-  return (state.effectiveCurrentTime || 0) + elapsed * (state.playbackRate || 1);
+  const serverTime = getServerTimeMs(state);
+  const estimatedServerNow = Date.now() + (timing?.serverClockOffsetMs || 0);
+  const elapsed = Math.max(0, (estimatedServerNow - serverTime) / 1000);
+  return getAuthoritativeCurrentTime(state) + elapsed * (state.playbackRate || 1);
 }
 
 function getParticipantName(participant: WatchPartyParticipant) {
@@ -370,6 +391,7 @@ function isWatchPartyPoll(value: unknown): value is WatchPartyPoll {
 function toRemoteCommand(
   state: WatchPartyPlaybackState,
   eventType: "state" | "play" | "pause" | "seek" | "sync",
+  timing?: PlaybackTiming,
 ): RemoteCommand {
   return {
     id: `${state.sequence}:${eventType}:${Date.now()}`,
@@ -377,9 +399,12 @@ function toRemoteCommand(
       eventType === "play" || eventType === "pause" || eventType === "seek"
         ? eventType
         : "state",
-    currentTime: getEffectiveTime(state),
+    currentTime: getEffectiveTime(state, timing),
+    authoritativeCurrentTime: getAuthoritativeCurrentTime(state),
     playbackStatus: state.playbackStatus,
     playbackRate: state.playbackRate,
+    serverTime: state.serverTime || state.updatedAt,
+    serverClockOffsetMs: timing?.serverClockOffsetMs,
   };
 }
 
@@ -618,6 +643,9 @@ function WatchPartyJoinPageContent() {
   const reactionTimersRef = React.useRef<Map<string, number>>(new Map());
   const latestSequenceRef = React.useRef(-1);
   const localTimeRef = React.useRef(0);
+  const serverClockOffsetMsRef = React.useRef(0);
+  const hasServerClockSampleRef = React.useRef(false);
+  const smoothedRttMsRef = React.useRef(0);
   const playbackCommandQueueRef = React.useRef<Promise<void>>(Promise.resolve());
   const lastPlaybackActionRef = React.useRef<{ type: "play" | "pause" | "seek"; at: number; currentTime: number } | null>(null);
   const isHostRef = React.useRef(false);
@@ -655,6 +683,46 @@ function WatchPartyJoinPageContent() {
     }, 3600);
   }, []);
 
+  const getPlaybackTiming = React.useCallback(
+    (): PlaybackTiming => ({
+      serverClockOffsetMs: serverClockOffsetMsRef.current,
+    }),
+    [],
+  );
+
+  const observePlaybackTiming = React.useCallback(
+    (state: WatchPartyPlaybackState, rttMs?: number) => {
+      const serverTimeMs = getServerTimeMs(state);
+      const receiveWallMs = Date.now();
+      const hasMeasuredRtt = typeof rttMs === "number" && Number.isFinite(rttMs);
+      const boundedRttMs = hasMeasuredRtt
+        ? Math.max(0, Math.min(rttMs, 30000))
+        : 0;
+      const nextOffsetMs = hasMeasuredRtt
+        ? serverTimeMs + boundedRttMs / 2 - receiveWallMs
+        : serverTimeMs - receiveWallMs;
+
+      if (!Number.isFinite(nextOffsetMs)) return;
+
+      if (!hasServerClockSampleRef.current) {
+        serverClockOffsetMsRef.current = nextOffsetMs;
+        smoothedRttMsRef.current = boundedRttMs;
+        hasServerClockSampleRef.current = true;
+        return;
+      }
+
+      if (hasMeasuredRtt) {
+        smoothedRttMsRef.current =
+          smoothedRttMsRef.current === 0
+            ? boundedRttMs
+            : smoothedRttMsRef.current * 0.75 + boundedRttMs * 0.25;
+        serverClockOffsetMsRef.current =
+          serverClockOffsetMsRef.current * 0.75 + nextOffsetMs * 0.25;
+      }
+    },
+    [],
+  );
+
   const returnFromRoom = React.useCallback(() => {
     if (typeof window !== "undefined" && window.history.length > 1) {
       router.back();
@@ -683,10 +751,12 @@ function WatchPartyJoinPageContent() {
     ) => {
       if ((state.sequence || 0) < latestSequenceRef.current) return;
 
+      observePlaybackTiming(state);
+      const timing = getPlaybackTiming();
       latestSequenceRef.current = state.sequence || 0;
       setPlaybackState(state);
 
-      const drift = Math.abs(getEffectiveTime(state) - localTimeRef.current);
+      const drift = Math.abs(getEffectiveTime(state, timing) - localTimeRef.current);
       const isControlEvent =
         eventType === "play" || eventType === "pause" || eventType === "seek";
       // Passive 5-second state polling must not keep seeking the media element.
@@ -700,10 +770,10 @@ function WatchPartyJoinPageContent() {
         isControlEvent ||
         (!isHostRef.current && (eventType === "state" || shouldCorrectDrift))
       ) {
-        setRemoteCommand(toRemoteCommand(state, eventType));
+        setRemoteCommand(toRemoteCommand(state, eventType, timing));
       }
     },
-    [],
+    [getPlaybackTiming, observePlaybackTiming],
   );
 
   const addFloatingReaction = React.useCallback((event: WatchPartyReactionEvent) => {
@@ -787,9 +857,12 @@ function WatchPartyJoinPageContent() {
           setRoomEndedOverlay(true);
         }
         if (nextRoom.playbackState) {
+          observePlaybackTiming(nextRoom.playbackState);
           latestSequenceRef.current = nextRoom.playbackState.sequence || 0;
           setPlaybackState(nextRoom.playbackState);
-          setRemoteCommand(toRemoteCommand(nextRoom.playbackState, "sync"));
+          setRemoteCommand(
+            toRemoteCommand(nextRoom.playbackState, "sync", getPlaybackTiming()),
+          );
         }
       })
       .catch((joinError) => {
@@ -811,7 +884,14 @@ function WatchPartyJoinPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [inviteToken, isAuthenticated, isHydrated, joinRetryNonce]);
+  }, [
+    getPlaybackTiming,
+    inviteToken,
+    isAuthenticated,
+    isHydrated,
+    joinRetryNonce,
+    observePlaybackTiming,
+  ]);
 
   const {
     isConnected,
@@ -966,15 +1046,41 @@ function WatchPartyJoinPageContent() {
     onError: React.useCallback((message: string) => setError(getRoomActionError(message)), []),
   });
 
+  const requestTimedState = React.useCallback(
+    async (roomId: string) => {
+      const startedAt =
+        typeof performance !== "undefined" ? performance.now() : Date.now();
+      const response = await requestState(roomId);
+      const finishedAt =
+        typeof performance !== "undefined" ? performance.now() : Date.now();
+      if (response.ok) observePlaybackTiming(response.data, finishedAt - startedAt);
+      return response;
+    },
+    [observePlaybackTiming, requestState],
+  );
+
+  const requestTimedSync = React.useCallback(
+    async (roomId: string) => {
+      const startedAt =
+        typeof performance !== "undefined" ? performance.now() : Date.now();
+      const response = await requestSync(roomId);
+      const finishedAt =
+        typeof performance !== "undefined" ? performance.now() : Date.now();
+      if (response.ok) observePlaybackTiming(response.data, finishedAt - startedAt);
+      return response;
+    },
+    [observePlaybackTiming, requestSync],
+  );
+
   React.useEffect(() => {
     if (!room?.id || !isConnected) return;
     const interval = window.setInterval(() => {
-      requestState(room.id).then((response) => {
+      requestTimedState(room.id).then((response) => {
         if (response.ok) handlePlaybackState(response.data, "state");
       });
     }, 5000);
     return () => window.clearInterval(interval);
-  }, [handlePlaybackState, isConnected, requestState, room?.id]);
+  }, [handlePlaybackState, isConnected, requestTimedState, room?.id]);
 
   React.useEffect(() => {
     if (!room?.id) return;
@@ -1025,13 +1131,13 @@ function WatchPartyJoinPageContent() {
     if (!room?.id) return;
     const handleVisibilityChange = () => {
       if (document.visibilityState !== "visible") return;
-      requestSync(room.id).then((response) => {
+      requestTimedSync(room.id).then((response) => {
         if (response.ok) handlePlaybackState(response.data, "sync");
       });
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [handlePlaybackState, requestSync, room?.id]);
+  }, [handlePlaybackState, requestTimedSync, room?.id]);
 
   React.useEffect(() => {
     if (!nextEpisodeCountdown) return;
@@ -1171,7 +1277,7 @@ function WatchPartyJoinPageContent() {
 
           // Refresh the authoritative sequence and retry the user's command once.
           // Stale/timeout races are recovery events, not user-facing errors.
-          const syncResponse = await requestSync(roomId);
+          const syncResponse = await requestTimedSync(roomId);
           if (!syncResponse.ok) return;
           handlePlaybackState(syncResponse.data, "state");
 
@@ -1181,7 +1287,7 @@ function WatchPartyJoinPageContent() {
           }
         });
     },
-    [emitPause, emitPlay, emitSeek, handlePlaybackState, isHost, requestSync, room?.id],
+    [emitPause, emitPlay, emitSeek, handlePlaybackState, isHost, requestTimedSync, room?.id],
   );
 
   const handleManualSync = React.useCallback(() => {
@@ -1199,7 +1305,7 @@ function WatchPartyJoinPageContent() {
     setIsSyncingPlayback(true);
     const toastId = toast.loading("Синхронизация началась...");
 
-    requestSync(room.id)
+    requestTimedSync(room.id)
       .then((response) => {
         if (response.ok) {
           handlePlaybackState(response.data, "sync");
@@ -1224,7 +1330,7 @@ function WatchPartyJoinPageContent() {
     isConnected,
     isSyncingPlayback,
     pushRoomEvent,
-    requestSync,
+    requestTimedSync,
     room?.id,
     room?.status,
   ]);
@@ -1841,7 +1947,11 @@ function WatchPartyJoinPageContent() {
                     poster={content?.thumbnailUrl || undefined}
                     title="Совместный просмотр"
                     subtitle={isHost ? "Вы управляете просмотром" : "Синхронизация с владельцем"}
-                    initialTime={playbackState ? getEffectiveTime(playbackState) : 0}
+                    initialTime={
+                      playbackState
+                        ? getEffectiveTime(playbackState, getPlaybackTiming())
+                        : 0
+                    }
                     // On a content switch the new <VideoPlayer> mounts before a
                     // later socket state is guaranteed to arrive. Autoplay the new
                     // source when the authoritative room state says PLAYING.

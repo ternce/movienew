@@ -52,6 +52,7 @@ type VideoState = {
   paused: boolean;
   ended: boolean;
   readyState: number;
+  playbackRate?: number;
 };
 
 function installVideoState(
@@ -82,6 +83,13 @@ function installVideoState(
     configurable: true,
     get: () => state.readyState,
   });
+  Object.defineProperty(video, "playbackRate", {
+    configurable: true,
+    get: () => state.playbackRate ?? 1,
+    set: (value: number) => {
+      state.playbackRate = value;
+    },
+  });
   Object.defineProperty(video, "canPlayType", {
     configurable: true,
     value: () => "probably",
@@ -107,6 +115,7 @@ function command(
   playbackStatus: "PLAYING" | "PAUSED",
   currentTime: number,
   type: PlaybackRemoteCommand["type"] = "state",
+  options: Partial<PlaybackRemoteCommand> = {},
 ): PlaybackRemoteCommand {
   return {
     id: `${sequence}:${type}`,
@@ -114,6 +123,7 @@ function command(
     playbackStatus,
     currentTime,
     playbackRate: 1,
+    ...options,
   };
 }
 
@@ -191,6 +201,175 @@ describe("usePlayer Watch Party remote sync", () => {
     expect(state.paused).toBe(true);
   });
 
+  it("keeps paused authoritative time from advancing with server time", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-27T12:00:10.000Z"));
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 3,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 1,
+    };
+    installVideoState(video, state);
+
+    rerender(
+      <Harness
+        remoteCommand={command(7, "PAUSED", 12, "pause", {
+          authoritativeCurrentTime: 2,
+          serverTime: "2026-08-27T12:00:00.000Z",
+          serverClockOffsetMs: 0,
+        })}
+      />,
+    );
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(2);
+    expect(state.paused).toBe(true);
+  });
+
+  it("hard-corrects even small drift when paused", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 2.1,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 1,
+    };
+    installVideoState(video, state);
+
+    rerender(<Harness remoteCommand={command(8, "PAUSED", 2, "pause")} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(2);
+    expect(state.paused).toBe(true);
+  });
+
+  it("advances playing commands from authoritative server time", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-27T12:00:01.000Z"));
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 0,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 1,
+    };
+    installVideoState(video, state);
+
+    rerender(
+      <Harness
+        remoteCommand={command(9, "PLAYING", 2, "state", {
+          authoritativeCurrentTime: 2,
+          serverTime: "2026-08-27T12:00:00.000Z",
+          serverClockOffsetMs: 0,
+        })}
+      />,
+    );
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(3);
+    expect(state.paused).toBe(false);
+  });
+
+  it("uses soft playback-rate correction for medium playing drift", async () => {
+    vi.useFakeTimers();
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 1,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+
+    rerender(<Harness remoteCommand={command(10, "PLAYING", 10.4)} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(10);
+    expect(state.playbackRate).toBeGreaterThan(1);
+
+    act(() => {
+      vi.advanceTimersByTime(1600);
+    });
+
+    expect(state.playbackRate).toBe(1);
+  });
+
+  it("hard-corrects large playing drift", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 1,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+
+    rerender(<Harness remoteCommand={command(11, "PLAYING", 11)} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(11);
+    expect(state.playbackRate).toBe(1);
+  });
+
+  it("cancels soft correction when a pause arrives", async () => {
+    vi.useFakeTimers();
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 1,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+
+    rerender(<Harness remoteCommand={command(12, "PLAYING", 10.4)} />);
+    await act(async () => {});
+    expect(state.playbackRate).toBeGreaterThan(1);
+
+    rerender(<Harness remoteCommand={command(13, "PAUSED", 10.4, "pause")} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(10.4);
+    expect(state.playbackRate).toBe(1);
+    expect(state.paused).toBe(true);
+  });
+
+  it("hard-corrects even small drift when seeking", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 2.2,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 1,
+    };
+    installVideoState(video, state);
+
+    rerender(<Harness remoteCommand={command(14, "PAUSED", 2.1, "seek")} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(2.1);
+    expect(state.paused).toBe(true);
+  });
+
   it("keeps the latest rapid play/pause command authoritative", async () => {
     let resolvePlay: () => void = () => undefined;
     const playPromise = new Promise<void>((resolve) => {
@@ -233,6 +412,7 @@ describe("usePlayer Watch Party remote sync", () => {
     installVideoState(video, state);
 
     rerender(<Harness remoteCommand={command(5, "PLAYING", 18, "play")} />);
+    rerender(<Harness remoteCommand={command(6, "PLAYING", 22, "play")} />);
     expect(video.play).not.toHaveBeenCalled();
 
     act(() => {
@@ -242,7 +422,7 @@ describe("usePlayer Watch Party remote sync", () => {
     });
     await act(async () => {});
 
-    expect(state.currentTime).toBe(18);
+    expect(state.currentTime).toBe(22);
     expect(video.play).toHaveBeenCalledTimes(1);
   });
 
