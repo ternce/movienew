@@ -663,7 +663,11 @@ export function useWatchPartySocket({
   );
 
   const sendReaction = useCallback(
-    (payload: { roomId: string; reaction: WatchPartyReactionType }) =>
+    (payload: {
+      roomId: string;
+      reaction: WatchPartyReactionType;
+      clientReactionId?: string;
+    }) =>
       emitAck<WatchPartyReactionEvent>("watch-party:reaction", payload),
     [emitAck],
   );

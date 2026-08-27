@@ -51,6 +51,7 @@ type WatchPartyTransferHostPayload = {
 type WatchPartyReactionPayload = {
   roomId?: string;
   reaction?: string;
+  clientReactionId?: string;
 };
 
 type WatchPartyChatSendPayload = {
@@ -448,6 +449,7 @@ export class WatchPartyGateway
       const userId = this.requireUser(client);
       const roomId = this.resolveRoomId(client, payload?.roomId);
       const reaction = this.parseReaction(payload?.reaction);
+      const reactionId = this.parseClientReactionId(payload?.clientReactionId);
 
       await this.assertReactionRateLimit(roomId, userId);
       const sender = await this.watchPartyService.getReactionSender(
@@ -456,7 +458,7 @@ export class WatchPartyGateway
       );
 
       const event = {
-        id: randomUUID(),
+        id: reactionId ?? randomUUID(),
         roomId,
         reaction,
         sender,
@@ -864,6 +866,15 @@ export class WatchPartyGateway
     }
 
     throw new Error('Unsupported reaction');
+  }
+
+  private parseClientReactionId(clientReactionId?: string) {
+    if (!clientReactionId) return undefined;
+    if (/^[a-zA-Z0-9_-]{1,80}$/.test(clientReactionId)) {
+      return clientReactionId;
+    }
+
+    throw new Error('Invalid client reaction id');
   }
 
   private async assertReactionRateLimit(roomId: string, userId: string) {

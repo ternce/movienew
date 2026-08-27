@@ -676,6 +676,70 @@ describe('WatchPartyGateway', () => {
     );
   });
 
+  it('broadcasts host reactions to the room exactly once for guest delivery', async () => {
+    const { gateway, service, serverTo } = createGateway();
+    const socket = createSocket('host-1');
+    service.getReactionSender.mockResolvedValue(reactionSender('host-1'));
+
+    await gateway.handleConnection(socket);
+    await socket.join('watch-party:room-1');
+    socket.watchPartyRoomId = 'room-1';
+    await gateway.handleReaction(
+      socket,
+      {
+        roomId: 'room-1',
+        reaction: '🔥',
+        clientReactionId: 'reaction-host-1',
+      },
+      jest.fn(),
+    );
+
+    expect(gateway.server.to).toHaveBeenCalledWith('watch-party:room-1');
+    expect(socket.to).not.toHaveBeenCalledWith('watch-party:room-1');
+    expect(serverTo.emit).toHaveBeenCalledTimes(1);
+    expect(serverTo.emit).toHaveBeenCalledWith(
+      'watch-party:reaction-received',
+      expect.objectContaining({
+        id: 'reaction-host-1',
+        roomId: 'room-1',
+        reaction: '🔥',
+        sender: reactionSender('host-1'),
+      }),
+    );
+  });
+
+  it('broadcasts guest reactions to the room exactly once for host delivery', async () => {
+    const { gateway, service, serverTo } = createGateway();
+    const socket = createSocket('user-2');
+    service.getReactionSender.mockResolvedValue(reactionSender('user-2'));
+
+    await gateway.handleConnection(socket);
+    await socket.join('watch-party:room-1');
+    socket.watchPartyRoomId = 'room-1';
+    await gateway.handleReaction(
+      socket,
+      {
+        roomId: 'room-1',
+        reaction: '👏',
+        clientReactionId: 'reaction-guest-1',
+      },
+      jest.fn(),
+    );
+
+    expect(gateway.server.to).toHaveBeenCalledWith('watch-party:room-1');
+    expect(socket.to).not.toHaveBeenCalledWith('watch-party:room-1');
+    expect(serverTo.emit).toHaveBeenCalledTimes(1);
+    expect(serverTo.emit).toHaveBeenCalledWith(
+      'watch-party:reaction-received',
+      expect.objectContaining({
+        id: 'reaction-guest-1',
+        roomId: 'room-1',
+        reaction: '👏',
+        sender: reactionSender('user-2'),
+      }),
+    );
+  });
+
   it('rejects unsupported reactions', async () => {
     const { gateway, service } = createGateway();
     const socket = createSocket('user-1');
@@ -690,6 +754,27 @@ describe('WatchPartyGateway', () => {
     );
 
     expect(service.getReactionSender).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ ok: false }));
+  });
+
+  it('rejects malformed client reaction ids', async () => {
+    const { gateway, service, serverTo } = createGateway();
+    const socket = createSocket('user-1');
+
+    await gateway.handleConnection(socket);
+    socket.watchPartyRoomId = 'room-1';
+    const ack = jest.fn();
+    await gateway.handleReaction(
+      socket,
+      { roomId: 'room-1', reaction: '😂', clientReactionId: '../bad' },
+      ack,
+    );
+
+    expect(service.getReactionSender).not.toHaveBeenCalled();
+    expect(serverTo.emit).not.toHaveBeenCalledWith(
+      'watch-party:reaction-received',
+      expect.anything(),
+    );
     expect(ack).toHaveBeenCalledWith(expect.objectContaining({ ok: false }));
   });
 

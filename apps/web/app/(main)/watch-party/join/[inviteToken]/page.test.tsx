@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,6 +33,16 @@ const mocks = vi.hoisted(() => ({
   streamError: null as Error | null,
   streamRefetch: vi.fn(),
   socketDisconnect: vi.fn(),
+  socketOptions: null as null | {
+    onReaction?: (event: {
+      id: string;
+      roomId: string;
+      reaction: string;
+      sender: Record<string, unknown>;
+      timestamp: string;
+    }) => void;
+  },
+  sendReactionAck: vi.fn(),
   leaveAck: vi.fn(),
   endAck: vi.fn(),
   createPollAck: vi.fn(),
@@ -48,6 +58,10 @@ const mocks = vi.hoisted(() => ({
 function hasText(text: string) {
   return (_content: string, element: Element | null) => element?.textContent === text;
 }
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function buildRoom(overrides: Record<string, unknown> = {}) {
   return {
@@ -210,7 +224,17 @@ vi.mock("@/hooks/use-watch-party-socket", async () => {
 
   return {
     ...actual,
-    useWatchPartySocket: (options: { onError?: (message: string) => void }) => {
+    useWatchPartySocket: (options: {
+      onError?: (message: string) => void;
+      onReaction?: (event: {
+        id: string;
+        roomId: string;
+        reaction: string;
+        sender: Record<string, unknown>;
+        timestamp: string;
+      }) => void;
+    }) => {
+      mocks.socketOptions = options;
       if (mocks.socketError) {
         setTimeout(() => options.onError?.(mocks.socketError || ""), 0);
       }
@@ -225,7 +249,7 @@ vi.mock("@/hooks/use-watch-party-socket", async () => {
         emitPause: () => okAck(buildRoom().playbackState),
         emitSeek: () => okAck(buildRoom().playbackState),
         transferHost: () => okAck(buildRoom()),
-        sendReaction: () => okAck({ id: "reaction-1" }),
+        sendReaction: (payload: unknown) => mocks.sendReactionAck(payload),
         sendChatMessage: () => okAck({ id: "message-1" }),
         createPoll: (payload: unknown) => mocks.createPollAck(payload),
         votePoll: () => okAck({ id: "poll-1" }),
@@ -255,10 +279,6 @@ function renderJoinPage() {
       queries: { retry: false },
       mutations: { retry: false },
     },
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
   });
 
   const ui = (
@@ -301,6 +321,18 @@ describe("WatchPartyJoinPage runtime safety", () => {
     mocks.streamError = null;
     mocks.streamRefetch.mockResolvedValue({ data: { data: mocks.streamData } });
     mocks.socketDisconnect.mockReset();
+    mocks.socketOptions = null;
+    mocks.sendReactionAck.mockReset();
+    mocks.sendReactionAck.mockImplementation((payload: { clientReactionId?: string; reaction?: string }) =>
+      Promise.resolve({
+        ok: true as const,
+        data: {
+          id: payload.clientReactionId || "reaction-1",
+          roomId: "cd51ee45-d3d7-4fdd-a6a5-0237a5ce6563",
+          reaction: payload.reaction || "❤️",
+        },
+      }),
+    );
     mocks.leaveAck.mockResolvedValue({ ok: true, data: {} });
     mocks.endAck.mockResolvedValue({ ok: true, data: buildRoom({ status: "ENDED" }) });
     mocks.createPollAck.mockResolvedValue({ ok: true, data: { id: "poll-1" } });
@@ -365,6 +397,94 @@ describe("WatchPartyJoinPage runtime safety", () => {
     expect(chatCard).not.toHaveClass("sesh-room-chat-collapsed");
     expect(screen.getByPlaceholderText("Написать сообщение...")).toBeInTheDocument();
     expect(screen.getByTestId("watch-party-video-player")).toBeInTheDocument();
+  });
+
+  it("shows a reaction immediately for the sender and emits a dedupe id", async () => {
+    const user = userEvent.setup();
+    renderJoinPage();
+
+    expect(await screen.findByTestId("watch-party-video-player")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /❤️/ }));
+
+    expect(document.querySelectorAll(".watch-party-reaction-pop")).toHaveLength(1);
+    expect(mocks.sendReactionAck).toHaveBeenCalledWith(
+      expect.objectContaining({
+        roomId: "cd51ee45-d3d7-4fdd-a6a5-0237a5ce6563",
+        reaction: "❤️",
+        clientReactionId: expect.stringMatching(/^reaction-/),
+      }),
+    );
+  });
+
+  it("dedupes the sender's server reaction echo by id", async () => {
+    const user = userEvent.setup();
+    renderJoinPage();
+
+    expect(await screen.findByTestId("watch-party-video-player")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /🔥/ }));
+
+    const payload = mocks.sendReactionAck.mock.calls[0][0] as {
+      clientReactionId: string;
+      roomId: string;
+      reaction: "🔥";
+    };
+
+    act(() => {
+      mocks.socketOptions?.onReaction?.({
+        id: payload.clientReactionId,
+        roomId: payload.roomId,
+        reaction: payload.reaction,
+        sender: buildRoom().currentParticipant,
+        timestamp: "2026-07-25T12:00:01.000Z",
+      });
+    });
+
+    expect(document.querySelectorAll(".watch-party-reaction-pop")).toHaveLength(1);
+  });
+
+  it("renders receiver reactions for the intended lifetime and cleans them up", async () => {
+    renderJoinPage();
+    expect(await screen.findByTestId("watch-party-video-player")).toBeInTheDocument();
+
+    vi.useFakeTimers();
+    act(() => {
+      mocks.socketOptions?.onReaction?.({
+        id: "server-reaction-1",
+        roomId: "cd51ee45-d3d7-4fdd-a6a5-0237a5ce6563",
+        reaction: "😂",
+        sender: buildRoom().currentParticipant,
+        timestamp: "2026-07-25T12:00:01.000Z",
+      });
+    });
+
+    expect(document.querySelectorAll(".watch-party-reaction-pop")).toHaveLength(1);
+    act(() => {
+      vi.advanceTimersByTime(1900);
+    });
+    expect(document.querySelectorAll(".watch-party-reaction-pop")).toHaveLength(1);
+    act(() => {
+      vi.advanceTimersByTime(1400);
+    });
+    expect(document.querySelectorAll(".watch-party-reaction-pop")).toHaveLength(0);
+  });
+
+  it("keeps rapid reactions as distinct visual events", async () => {
+    renderJoinPage();
+    expect(await screen.findByTestId("watch-party-video-player")).toBeInTheDocument();
+
+    act(() => {
+      ["❤️", "😂", "🔥", "👏", "❤️", "😂"].forEach((reaction, index) => {
+        mocks.socketOptions?.onReaction?.({
+          id: `server-reaction-${index}`,
+          roomId: "cd51ee45-d3d7-4fdd-a6a5-0237a5ce6563",
+          reaction,
+          sender: buildRoom().currentParticipant,
+          timestamp: "2026-07-25T12:00:01.000Z",
+        });
+      });
+    });
+
+    expect(document.querySelectorAll(".watch-party-reaction-pop")).toHaveLength(6);
   });
 
   it("leaves only after a successful socket ACK, then disconnects intentionally and exits", async () => {

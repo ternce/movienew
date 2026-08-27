@@ -417,6 +417,14 @@ function getReactionRange(seed: number, salt: number, min: number, max: number) 
   return min + normalized * (max - min);
 }
 
+function createClientEventId(prefix: string) {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 function getFloatingReaction(event: WatchPartyReactionEvent): FloatingReaction {
   const seed = getReactionSeed(event.id);
   const lane = REACTION_LANES[seed % REACTION_LANES.length];
@@ -430,7 +438,7 @@ function getFloatingReaction(event: WatchPartyReactionEvent): FloatingReaction {
     rotation: Math.round(getReactionRange(seed, 3, -8, 8)),
     endRotation: Math.round(getReactionRange(seed, 4, -10, 10)),
     delayMs: Math.round(getReactionRange(seed, 5, 0, 110)),
-    durationMs: Math.round(getReactionRange(seed, 6, 3600, 4600)),
+    durationMs: Math.round(getReactionRange(seed, 6, 2400, 3000)),
     travel: Math.round(getReactionRange(seed, 7, 220, 300)),
   };
 }
@@ -607,6 +615,7 @@ function WatchPartyJoinPageContent() {
   const [eventToasts, setEventToasts] = React.useState<RoomEventToast[]>([]);
 
   const chatListRef = React.useRef<HTMLDivElement>(null);
+  const reactionTimersRef = React.useRef<Map<string, number>>(new Map());
   const latestSequenceRef = React.useRef(-1);
   const localTimeRef = React.useRef(0);
   const playbackCommandQueueRef = React.useRef<Promise<void>>(Promise.resolve());
@@ -696,6 +705,36 @@ function WatchPartyJoinPageContent() {
     },
     [],
   );
+
+  const addFloatingReaction = React.useCallback((event: WatchPartyReactionEvent) => {
+    const floatingEvent = getFloatingReaction(event);
+
+    setFloatingReactions((current) => {
+      if (current.some((item) => item.id === floatingEvent.id)) return current;
+      return [...current.slice(-(REACTION_VISIBLE_LIMIT - 1)), floatingEvent];
+    });
+
+    const existingTimer = reactionTimersRef.current.get(floatingEvent.id);
+    if (existingTimer) {
+      window.clearTimeout(existingTimer);
+    }
+
+    const timer = window.setTimeout(() => {
+      reactionTimersRef.current.delete(floatingEvent.id);
+      setFloatingReactions((current) =>
+        current.filter((item) => item.id !== floatingEvent.id),
+      );
+    }, floatingEvent.durationMs + floatingEvent.delayMs + 160);
+
+    reactionTimersRef.current.set(floatingEvent.id, timer);
+  }, []);
+
+  React.useEffect(() => {
+    return () => {
+      reactionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+      reactionTimersRef.current.clear();
+    };
+  }, []);
 
   React.useEffect(() => {
     if (!isHydrated) {
@@ -843,13 +882,7 @@ function WatchPartyJoinPageContent() {
         )}`,
       );
     }, [pushRoomEvent]),
-    onReaction: React.useCallback((event: WatchPartyReactionEvent) => {
-      const floatingEvent = getFloatingReaction(event);
-      setFloatingReactions((current) => [...current.slice(-(REACTION_VISIBLE_LIMIT - 1)), floatingEvent]);
-      window.setTimeout(() => {
-        setFloatingReactions((current) => current.filter((item) => item.id !== event.id));
-      }, floatingEvent.durationMs + floatingEvent.delayMs + 120);
-    }, []),
+    onReaction: addFloatingReaction,
     onChatMessage: React.useCallback(
       (message: WatchPartyChatMessage) => {
         const shouldScroll = isNearBottom(chatListRef.current);
@@ -1299,11 +1332,45 @@ function WatchPartyJoinPageContent() {
   const handleReaction = React.useCallback(
     (reaction: WatchPartyReactionType) => {
       if (!room?.id) return;
-      sendReaction({ roomId: room.id, reaction }).then((response) => {
-        if (!response.ok) setError(getRoomActionError(response.message || "Реакция отклонена"));
+      const clientReactionId = createClientEventId("reaction");
+      const sender =
+        room.currentParticipant ||
+        participants.find((participant) => participant.userId === user?.id) ||
+        ({
+          userId: user?.id || "current-user",
+          displayName:
+            [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
+            user?.email ||
+            "You",
+          avatarUrl: user?.avatarUrl ?? null,
+          role: isHost ? "HOST" : "PARTICIPANT",
+          connectionStatus: "ONLINE",
+          joinedAt: new Date().toISOString(),
+        } as WatchPartyParticipant);
+
+      addFloatingReaction({
+        id: clientReactionId,
+        roomId: room.id,
+        reaction,
+        sender,
+        timestamp: new Date().toISOString(),
+      });
+
+      sendReaction({ roomId: room.id, reaction, clientReactionId }).then((response) => {
+        if (!response.ok) {
+          setFloatingReactions((current) =>
+            current.filter((item) => item.id !== clientReactionId),
+          );
+          const timer = reactionTimersRef.current.get(clientReactionId);
+          if (timer) {
+            window.clearTimeout(timer);
+            reactionTimersRef.current.delete(clientReactionId);
+          }
+          setError(getRoomActionError(response.message || "Reaction rejected"));
+        }
       });
     },
-    [room?.id, sendReaction],
+    [addFloatingReaction, isHost, participants, room, sendReaction, user],
   );
 
   const handleLoadOlderMessages = React.useCallback(() => {
@@ -1837,13 +1904,13 @@ function WatchPartyJoinPageContent() {
                 ))}
               </div>
 
-              <div className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 gap-2 rounded-full border border-white/10 bg-black/38 p-2 shadow-2xl backdrop-blur-xl">
+              <div className="sesh-watch-party-reaction-bar absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 gap-1.5 rounded-full border border-white/10 bg-black/42 p-1.5 shadow-lg backdrop-blur-xl">
                 {QUICK_REACTIONS.map((reaction) => (
                   <Button
                     key={reaction}
                     variant="ghost"
                     size="icon"
-                    className="sesh-reaction-button h-11 w-11 bg-white/8 text-xl"
+                    className="sesh-reaction-button h-9 w-9 bg-white/8 text-lg sm:h-10 sm:w-10 sm:text-xl"
                     aria-label={`Отправить реакцию ${reaction}`}
                     onClick={() => handleReaction(reaction)}
                   >
