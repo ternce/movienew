@@ -47,6 +47,37 @@ function mapQualityLevel(height: number): VideoQuality {
 }
 
 const REMOTE_COMMAND_SEEK_THRESHOLD_SECONDS = 1.5;
+const ENDED_REPLAY_EPSILON_SECONDS = 0.5;
+
+function getRemotePlaybackStatus(command: PlaybackRemoteCommand) {
+  if (command.type === "play") return "PLAYING";
+  if (command.type === "pause") return "PAUSED";
+  return command.playbackStatus;
+}
+
+function hasMetadata(video: HTMLVideoElement) {
+  return video.readyState >= 1 || Number.isFinite(video.duration);
+}
+
+function getClampedPlaybackTime(video: HTMLVideoElement, time: number) {
+  if (!Number.isFinite(time)) return 0;
+  const duration = Number.isFinite(video.duration)
+    ? video.duration
+    : Number.POSITIVE_INFINITY;
+  return Math.max(0, Math.min(time, duration));
+}
+
+function shouldRestartEndedPlayback(video: HTMLVideoElement, targetTime: number) {
+  if (!Number.isFinite(video.duration) || video.duration <= 0) {
+    return video.ended;
+  }
+
+  return (
+    video.ended ||
+    (video.currentTime >= video.duration - ENDED_REPLAY_EPSILON_SECONDS &&
+      targetTime >= video.duration - ENDED_REPLAY_EPSILON_SECONDS)
+  );
+}
 
 /**
  * HLS.js video player hook
@@ -72,6 +103,9 @@ export function usePlayer({
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const endedCallbackFiredRef = useRef(false);
   const suppressPlaybackActionRef = useRef(false);
+  const remoteCommandVersionRef = useRef(0);
+  const latestRemoteCommandRef = useRef<PlaybackRemoteCommand | null>(null);
+  const pendingRemoteCommandRef = useRef<PlaybackRemoteCommand | null>(null);
   // Native media events fired while HLS is replacing/attaching a source are not
   // user playback intent. Treating those pause/play events as host commands can
   // create a PLAYING -> PAUSED feedback loop after Watch Party changes content.
@@ -124,6 +158,97 @@ export function usePlayer({
     isFullscreen,
     isControlsVisible,
   } = usePlayerStore();
+
+  const applyRemotePlaybackCommand = useCallback(
+    async (command: PlaybackRemoteCommand, version: number) => {
+      const video = videoRef.current;
+      if (!video) return;
+
+      const status = getRemotePlaybackStatus(command);
+      const targetTime = Number(command.currentTime);
+      suppressPlaybackActionRef.current = true;
+
+      if (
+        typeof command.playbackRate === "number" &&
+        command.playbackRate > 0
+      ) {
+        video.playbackRate = command.playbackRate;
+      }
+
+      if (!hasMetadata(video)) {
+        pendingRemoteCommandRef.current = command;
+        if (status === "PAUSED" && !video.paused) {
+          video.pause();
+        }
+        return;
+      }
+
+      pendingRemoteCommandRef.current = null;
+
+      if (Number.isFinite(targetTime)) {
+        let nextTime = getClampedPlaybackTime(video, targetTime);
+        if (status === "PLAYING" && shouldRestartEndedPlayback(video, nextTime)) {
+          nextTime = 0;
+          endedCallbackFiredRef.current = false;
+          setEnded(false);
+        }
+
+        const drift = Math.abs(video.currentTime - nextTime);
+        if (
+          drift > REMOTE_COMMAND_SEEK_THRESHOLD_SECONDS ||
+          video.ended ||
+          command.type === "seek"
+        ) {
+          video.currentTime = nextTime;
+          setCurrentTime(video.currentTime);
+        }
+      }
+
+      if (status === "PLAYING") {
+        if (video.paused || video.ended) {
+          await video.play().catch((error: unknown) => {
+            if (version !== remoteCommandVersionRef.current) return;
+            const name =
+              error instanceof DOMException
+                ? error.name
+                : error instanceof Error
+                  ? error.name
+                  : "";
+            if (name === "NotAllowedError") {
+              const message =
+                "Tap to synchronize playback";
+              setError(message);
+              onErrorRef.current?.(message);
+            }
+          });
+          if (version !== remoteCommandVersionRef.current) {
+            const latestCommand = latestRemoteCommandRef.current;
+            if (
+              latestCommand &&
+              getRemotePlaybackStatus(latestCommand) === "PAUSED" &&
+              !video.paused
+            ) {
+              video.pause();
+            }
+            return;
+          }
+        }
+      } else if (status === "PAUSED") {
+        if (!video.paused) {
+          video.pause();
+        }
+      }
+
+      if (version === remoteCommandVersionRef.current) {
+        window.setTimeout(() => {
+          if (version === remoteCommandVersionRef.current) {
+            suppressPlaybackActionRef.current = false;
+          }
+        }, 250);
+      }
+    },
+    [setCurrentTime, setEnded, setError],
+  );
 
   // Initialize HLS.js
   useEffect(() => {
@@ -306,6 +431,14 @@ export function usePlayer({
     const handleDurationChange = () => {
       setDuration(video.duration);
     };
+    const handleLoadedMetadata = () => {
+      setDuration(video.duration);
+      const pendingCommand = pendingRemoteCommandRef.current;
+      if (pendingCommand) {
+        const version = remoteCommandVersionRef.current;
+        void applyRemotePlaybackCommand(pendingCommand, version);
+      }
+    };
     const handleProgress = () => {
       if (video.buffered.length > 0) {
         setBufferedTime(video.buffered.end(video.buffered.length - 1));
@@ -328,6 +461,7 @@ export function usePlayer({
     video.addEventListener("pause", handlePause);
     video.addEventListener("ended", handleEnded);
     video.addEventListener("timeupdate", handleTimeUpdate);
+    video.addEventListener("loadedmetadata", handleLoadedMetadata);
     video.addEventListener("durationchange", handleDurationChange);
     video.addEventListener("progress", handleProgress);
     video.addEventListener("waiting", handleWaiting);
@@ -340,6 +474,7 @@ export function usePlayer({
       video.removeEventListener("pause", handlePause);
       video.removeEventListener("ended", handleEnded);
       video.removeEventListener("timeupdate", handleTimeUpdate);
+      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
       video.removeEventListener("durationchange", handleDurationChange);
       video.removeEventListener("progress", handleProgress);
       video.removeEventListener("waiting", handleWaiting);
@@ -362,58 +497,18 @@ export function usePlayer({
     onError,
     onProgress,
     onTimeUpdate,
+    applyRemotePlaybackCommand,
   ]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !remoteCommand) return;
 
-    const targetTime = Number(remoteCommand.currentTime);
-    const applyPlayback = async () => {
-      suppressPlaybackActionRef.current = true;
-
-      if (
-        typeof remoteCommand.playbackRate === "number" &&
-        remoteCommand.playbackRate > 0
-      ) {
-        video.playbackRate = remoteCommand.playbackRate;
-      }
-
-      if (Number.isFinite(targetTime)) {
-        const duration = Number.isFinite(video.duration)
-          ? video.duration
-          : Number.POSITIVE_INFINITY;
-        const nextTime = Math.max(0, Math.min(targetTime, duration));
-        const drift = Math.abs(video.currentTime - nextTime);
-        if (drift > REMOTE_COMMAND_SEEK_THRESHOLD_SECONDS) {
-          video.currentTime = nextTime;
-          setCurrentTime(video.currentTime);
-        }
-      }
-
-      if (
-        remoteCommand.type === "play" ||
-        remoteCommand.playbackStatus === "PLAYING"
-      ) {
-        if (video.paused) {
-          await video.play().catch(() => {});
-        }
-      } else if (
-        remoteCommand.type === "pause" ||
-        remoteCommand.playbackStatus === "PAUSED"
-      ) {
-        if (!video.paused) {
-          video.pause();
-        }
-      }
-
-      window.setTimeout(() => {
-        suppressPlaybackActionRef.current = false;
-      }, 250);
-    };
-
-    applyPlayback();
-  }, [remoteCommand, setCurrentTime]);
+    const version = remoteCommandVersionRef.current + 1;
+    remoteCommandVersionRef.current = version;
+    latestRemoteCommandRef.current = remoteCommand;
+    void applyRemotePlaybackCommand(remoteCommand, version);
+  }, [applyRemotePlaybackCommand, remoteCommand]);
 
   // Progress tracking (debounced callback)
   useEffect(() => {
@@ -545,7 +640,7 @@ export function usePlayer({
       const video = videoRef.current;
       if (!video) return;
 
-      video.currentTime = Math.max(0, Math.min(time, video.duration));
+      video.currentTime = getClampedPlaybackTime(video, time);
       setCurrentTime(video.currentTime);
       if (
         !options?.silent &&
@@ -572,10 +667,22 @@ export function usePlayer({
     // sources and previously caused a PLAY/PAUSE feedback loop after starting a
     // poll winner.
     const nextType: "play" | "pause" = video.paused ? "play" : "pause";
-    const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+    const shouldReplay =
+      nextType === "play" && shouldRestartEndedPlayback(video, video.currentTime);
+    const currentTime = shouldReplay
+      ? 0
+      : Number.isFinite(video.currentTime)
+        ? video.currentTime
+        : 0;
     const playbackRate = video.playbackRate || 1;
 
     if (nextType === "play") {
+      if (shouldReplay) {
+        endedCallbackFiredRef.current = false;
+        setEnded(false);
+        video.currentTime = 0;
+        setCurrentTime(0);
+      }
       video.play().catch(() => {});
     } else {
       video.pause();
@@ -588,7 +695,7 @@ export function usePlayer({
         playbackRate,
       });
     }
-  }, [onPlaybackAction]);
+  }, [onPlaybackAction, setCurrentTime, setEnded]);
 
   // Fullscreen handlers
   const enterFullscreen = useCallback(async () => {

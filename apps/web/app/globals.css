@@ -7049,8 +7049,17 @@
 }
 
 .sesh-room-side-section {
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
   min-height: 0;
   flex: 0 1 auto;
+}
+
+.sesh-room-participants-list,
+.sesh-room-poll-body {
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .sesh-watch-video {
@@ -7170,6 +7179,11 @@
   .sesh-room-chat,
   .sesh-room-side-section {
     flex: none;
+  }
+  .sesh-room-side-section,
+  .sesh-room-participants-list,
+  .sesh-room-poll-body {
+    overflow: visible;
   }
   .sesh-room-chat:not(.sesh-room-chat-collapsed) { min-height: min(430px, 58vh); }
 }

@@ -34,6 +34,10 @@ const mocks = vi.hoisted(() => ({
   streamRefetch: vi.fn(),
   socketDisconnect: vi.fn(),
   socketOptions: null as null | {
+    onPlaybackState?: (
+      state: Record<string, unknown>,
+      eventType: "state" | "play" | "pause" | "seek" | "sync",
+    ) => void;
     onReaction?: (event: {
       id: string;
       roomId: string;
@@ -52,6 +56,7 @@ const mocks = vi.hoisted(() => ({
   },
   socketError: null as string | null,
   playerThrows: false,
+  lastVideoPlayerProps: null as null | Record<string, unknown>,
   miniChatThrows: false,
 }));
 
@@ -162,8 +167,9 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("next/dynamic", () => ({
-  default: () => function DynamicMock() {
+  default: () => function DynamicMock(props: Record<string, unknown>) {
     if (mocks.playerThrows) throw new Error("player render failed");
+    mocks.lastVideoPlayerProps = props;
     return <div data-testid="watch-party-video-player" />;
   },
 }));
@@ -226,6 +232,10 @@ vi.mock("@/hooks/use-watch-party-socket", async () => {
     ...actual,
     useWatchPartySocket: (options: {
       onError?: (message: string) => void;
+      onPlaybackState?: (
+        state: Record<string, unknown>,
+        eventType: "state" | "play" | "pause" | "seek" | "sync",
+      ) => void;
       onReaction?: (event: {
         id: string;
         roomId: string;
@@ -309,6 +319,7 @@ describe("WatchPartyJoinPage runtime safety", () => {
     };
     mocks.isAuthenticated = true;
     mocks.isHydrated = true;
+    mocks.user = { id: "user-host", firstName: "Host", lastName: "User" };
     mocks.inviteToken = inviteToken;
     mocks.socketState = {
       isConnected: false,
@@ -316,6 +327,7 @@ describe("WatchPartyJoinPage runtime safety", () => {
     };
     mocks.socketError = null;
     mocks.playerThrows = false;
+    mocks.lastVideoPlayerProps = null;
     mocks.miniChatThrows = false;
     mocks.streamLoading = false;
     mocks.streamError = null;
@@ -375,6 +387,50 @@ describe("WatchPartyJoinPage runtime safety", () => {
 
     expect(await screen.findByText("Подключение...")).toBeInTheDocument();
     expect((await screen.findAllByText("1")).length).toBeGreaterThan(0);
+  });
+
+  it("applies passive authoritative playback state to guests", async () => {
+    const guestParticipant = {
+      userId: "user-guest",
+      displayName: "Guest User",
+      avatarUrl: null,
+      role: "PARTICIPANT",
+      connectionStatus: "ONLINE",
+      joinedAt: "2026-07-25T12:00:00.000Z",
+    };
+    mocks.user = { id: "user-guest", firstName: "Guest", lastName: "User" };
+    mocks.apiPost.mockResolvedValueOnce({
+      success: true,
+      data: buildRoom({
+        currentParticipant: guestParticipant,
+        participants: [buildRoom().currentParticipant, guestParticipant],
+      }),
+    });
+
+    renderJoinPage();
+    expect(await screen.findByTestId("watch-party-video-player")).toBeInTheDocument();
+
+    act(() => {
+      mocks.socketOptions?.onPlaybackState?.(
+        {
+          ...buildRoom().playbackState,
+          sequence: 1,
+          playbackStatus: "PAUSED",
+          currentTime: 5,
+          effectiveCurrentTime: 5,
+        },
+        "state",
+      );
+    });
+
+    await waitFor(() => {
+      expect(mocks.lastVideoPlayerProps?.remoteCommand).toEqual(
+        expect.objectContaining({
+          playbackStatus: "PAUSED",
+          currentTime: 5,
+        }),
+      );
+    });
   });
 
   it("fully collapses and restores the room chat without losing room state", async () => {

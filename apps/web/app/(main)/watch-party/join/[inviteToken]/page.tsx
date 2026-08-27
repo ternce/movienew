@@ -698,7 +698,7 @@ function WatchPartyJoinPageContent() {
       if (
         eventType === "sync" ||
         isControlEvent ||
-        (!isHostRef.current && shouldCorrectDrift)
+        (!isHostRef.current && (eventType === "state" || shouldCorrectDrift))
       ) {
         setRemoteCommand(toRemoteCommand(state, eventType));
       }
@@ -2200,7 +2200,7 @@ function WatchPartyJoinPageContent() {
                   {onlineCount}/{participants.length}
                 </span>
               </div>
-              <div className="space-y-2">
+              <div className="sesh-room-participants-list space-y-2">
                 {participants.length === 0 ? (
                   <div className="rounded-2xl border border-white/8 bg-white/[0.035] p-4 text-center text-sm text-white/50">
                     Ожидание участников.
@@ -2282,7 +2282,7 @@ function WatchPartyJoinPageContent() {
               </div>
 
               {poll && Array.isArray(poll.options) ? (
-                <div className="space-y-3">
+                <div className="sesh-room-poll-body space-y-3">
                   <Badge variant={poll.status === "ACTIVE" ? "secondary" : "success"}>
                     {formatPollStatus(poll.status)}
                   </Badge>
@@ -2382,7 +2382,7 @@ function WatchPartyJoinPageContent() {
                   )}
                 </div>
               ) : (
-                <div className="sesh-poll-empty rounded-2xl border border-dashed border-white/12 bg-white/5 p-4 text-center">
+                <div className="sesh-room-poll-body sesh-poll-empty rounded-2xl border border-dashed border-white/12 bg-white/5 p-4 text-center">
                   <Sparkle className="mx-auto mb-2 h-6 w-6 text-white/38" />
                   <p className="text-sm font-medium text-white">Голосование пока не создано</p>
                   <p className="mt-1 text-xs text-white/48">
