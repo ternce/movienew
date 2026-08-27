@@ -253,6 +253,13 @@ export function MiniChatWidget({ className, activeWatchParty }: MiniChatWidgetPr
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
+  useEffect(() => {
+    document.body.classList.toggle("sesh-mini-chat-open", open);
+    return () => {
+      document.body.classList.remove("sesh-mini-chat-open");
+    };
+  }, [open]);
+
   const startConversation = async (targetUserId: string) => {
     const response = await api.post<DirectConversation>(
       endpoints.chat.conversations,
@@ -331,7 +338,7 @@ export function MiniChatWidget({ className, activeWatchParty }: MiniChatWidgetPr
   }
 
   return (
-    <div className={cn("fixed bottom-4 right-4 z-50 md:bottom-6 md:right-6", className)}>
+    <div className={cn("sesh-mini-chat-root fixed bottom-4 right-4 z-50 md:bottom-6 md:right-6", className)}>
       {!open && (
         <Button
           type="button"
@@ -360,7 +367,7 @@ export function MiniChatWidget({ className, activeWatchParty }: MiniChatWidgetPr
           )}
           aria-label="Сообщения"
         >
-          <header className="relative flex h-16 shrink-0 items-center justify-between overflow-hidden border-b border-white/10 px-4">
+          <header className="sesh-mini-chat-header relative flex h-16 shrink-0 items-center justify-between overflow-hidden border-b border-white/10 px-4">
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_15%_0%,rgba(255,45,117,0.18),transparent_52%),radial-gradient(ellipse_at_88%_0%,rgba(76,156,255,0.14),transparent_48%)]" />
             <div className="flex min-w-0 items-center gap-2">
               {activeConversation && !minimized && (
@@ -575,7 +582,7 @@ export function MiniChatWidget({ className, activeWatchParty }: MiniChatWidgetPr
                       );
                     })}
                   </div>
-                  <div className="border-t border-white/10 bg-[#090512]/88 p-4">
+                  <div className="sesh-mini-chat-composer border-t border-white/10 bg-[#090512]/88 p-4">
                     <div className="mb-3 flex flex-wrap items-center gap-1.5">
                       {QUICK_REACTIONS.map((reaction) => (
                         <Button
