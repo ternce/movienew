@@ -76,6 +76,7 @@ describe('AuthService', () => {
       user: {
         create: jest.fn(),
         update: jest.fn(),
+        findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn(),
       },
       partnerRelationship: {

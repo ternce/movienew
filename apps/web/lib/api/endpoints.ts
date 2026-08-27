@@ -156,6 +156,27 @@ export const endpoints = {
       `/users/me/watch-history/${contentId}`,
   },
 
+  // Watch Party
+  watchParties: {
+    create: "/watch-parties",
+    detail: (roomId: string) => `/watch-parties/${roomId}`,
+    messages: (roomId: string) => `/watch-parties/${roomId}/messages`,
+    poll: (roomId: string) => `/watch-parties/${roomId}/poll`,
+    join: "/watch-parties/join",
+    leave: (roomId: string) => `/watch-parties/${roomId}/leave`,
+    end: (roomId: string) => `/watch-parties/${roomId}/end`,
+  },
+
+  // Mini Chat
+  chat: {
+    conversations: "/chat/conversations",
+    messages: (conversationId: string) =>
+      `/chat/conversations/${conversationId}/messages`,
+    read: (conversationId: string) =>
+      `/chat/conversations/${conversationId}/read`,
+    userSearch: "/chat/users/search",
+  },
+
   // Subscriptions
   subscriptions: {
     plans: "/subscriptions/plans",

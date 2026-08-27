@@ -9,6 +9,9 @@ interface UsePlayerOptions {
   src: string;
   autoPlay?: boolean;
   initialTime?: number;
+  remoteCommand?: PlaybackRemoteCommand | null;
+  onPlaybackAction?: (action: PlaybackLocalAction) => void;
+  onTimeUpdate?: (time: number) => void;
   onProgress?: (
     time: number,
     reason?: "interval" | "pause" | "ended" | "visibilitychange" | "pagehide",
@@ -17,6 +20,20 @@ interface UsePlayerOptions {
   onError?: (error: string) => void;
   onUrlExpired?: () => void;
 }
+
+export type PlaybackRemoteCommand = {
+  id: string | number;
+  type: "state" | "play" | "pause" | "seek";
+  currentTime: number;
+  playbackStatus?: "PLAYING" | "PAUSED";
+  playbackRate?: number;
+};
+
+export type PlaybackLocalAction = {
+  type: "play" | "pause" | "seek";
+  currentTime: number;
+  playbackRate: number;
+};
 
 /**
  * Map HLS.js quality levels to our quality enum
@@ -29,6 +46,8 @@ function mapQualityLevel(height: number): VideoQuality {
   return "240p";
 }
 
+const REMOTE_COMMAND_SEEK_THRESHOLD_SECONDS = 1.5;
+
 /**
  * HLS.js video player hook
  * Handles all video playback logic and syncs with Zustand store
@@ -37,6 +56,9 @@ export function usePlayer({
   src,
   autoPlay = false,
   initialTime = 0,
+  remoteCommand,
+  onPlaybackAction,
+  onTimeUpdate,
   onProgress,
   onEnded,
   onError,
@@ -49,6 +71,32 @@ export function usePlayer({
   );
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const endedCallbackFiredRef = useRef(false);
+  const suppressPlaybackActionRef = useRef(false);
+  // Native media events fired while HLS is replacing/attaching a source are not
+  // user playback intent. Treating those pause/play events as host commands can
+  // create a PLAYING -> PAUSED feedback loop after Watch Party changes content.
+  const sourceTransitionRef = useRef(false);
+  const sourceTransitionReleaseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialTimeRef = useRef(initialTime);
+  const autoPlayRef = useRef(autoPlay);
+  const onErrorRef = useRef(onError);
+  const onUrlExpiredRef = useRef(onUrlExpired);
+
+  useEffect(() => {
+    initialTimeRef.current = initialTime;
+  }, [initialTime]);
+
+  useEffect(() => {
+    autoPlayRef.current = autoPlay;
+  }, [autoPlay]);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
+  useEffect(() => {
+    onUrlExpiredRef.current = onUrlExpired;
+  }, [onUrlExpired]);
 
   // Store actions
   const {
@@ -83,6 +131,23 @@ export function usePlayer({
     if (!video || !src) return;
 
     endedCallbackFiredRef.current = false;
+    sourceTransitionRef.current = true;
+    if (sourceTransitionReleaseRef.current) {
+      clearTimeout(sourceTransitionReleaseRef.current);
+      sourceTransitionReleaseRef.current = null;
+    }
+
+    const releaseSourceTransition = () => {
+      if (sourceTransitionReleaseRef.current) {
+        clearTimeout(sourceTransitionReleaseRef.current);
+      }
+      // Give the browser/HLS a short settling window after canplay. Chromium may
+      // emit lifecycle play/pause events around MediaSource attachment.
+      sourceTransitionReleaseRef.current = setTimeout(() => {
+        sourceTransitionRef.current = false;
+        sourceTransitionReleaseRef.current = null;
+      }, 900);
+    };
 
     // Clean up previous instance
     if (hlsRef.current) {
@@ -117,15 +182,16 @@ export function usePlayer({
         setAvailableQualities(qualities);
 
         // Auto-play if requested
-        if (autoPlay) {
+        if (autoPlayRef.current) {
           video.play().catch(() => {
             // Auto-play was prevented, that's OK
           });
         }
 
-        // Seek to initial time if provided
-        if (initialTime > 0) {
-          video.currentTime = initialTime;
+        // Seek to initial time only when a new media source is attached.
+        const startTime = initialTimeRef.current;
+        if (startTime > 0) {
+          video.currentTime = startTime;
         }
       });
 
@@ -142,7 +208,7 @@ export function usePlayer({
             case Hls.ErrorTypes.NETWORK_ERROR:
               // Check for 403 — signed URL expired
               if (data.response?.code === 403) {
-                onUrlExpired?.();
+                onUrlExpiredRef.current?.();
               } else {
                 // Try to recover other network errors
                 hls.startLoad();
@@ -154,7 +220,7 @@ export function usePlayer({
             default:
               // Cannot recover
               setError("Ошибка воспроизведения видео");
-              onError?.("Ошибка воспроизведения видео");
+              onErrorRef.current?.("Ошибка воспроизведения видео");
               break;
           }
         }
@@ -164,19 +230,28 @@ export function usePlayer({
     } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
       // Native HLS support (Safari)
       video.src = src;
-      if (autoPlay) {
+      if (autoPlayRef.current) {
         video.play().catch(() => {});
       }
-      if (initialTime > 0) {
-        video.currentTime = initialTime;
+      const startTime = initialTimeRef.current;
+      if (startTime > 0) {
+        video.currentTime = startTime;
       }
       setAvailableQualities(["auto"]);
     } else {
       setError("Ваш браузер не поддерживает HLS");
-      onError?.("Ваш браузер не поддерживает HLS");
+      onErrorRef.current?.("Ваш браузер не поддерживает HLS");
     }
 
+    video.addEventListener("canplay", releaseSourceTransition, { once: true });
+
     return () => {
+      video.removeEventListener("canplay", releaseSourceTransition);
+      if (sourceTransitionReleaseRef.current) {
+        clearTimeout(sourceTransitionReleaseRef.current);
+        sourceTransitionReleaseRef.current = null;
+      }
+      sourceTransitionRef.current = false;
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
@@ -184,13 +259,9 @@ export function usePlayer({
     };
   }, [
     src,
-    autoPlay,
-    initialTime,
     setAvailableQualities,
     setQuality,
     setError,
-    onError,
-    onUrlExpired,
   ]);
 
   // Video event handlers
@@ -203,7 +274,13 @@ export function usePlayer({
         onProgress?.(video.currentTime, reason);
       }
     };
-    const handlePlay = () => play();
+    const handlePlay = () => {
+      // Media `play`/`pause` events are also emitted by HLS/browser lifecycle
+      // changes (source replacement, MediaSource attach, recovery). They must
+      // update local UI only. Watch Party host commands are emitted from the
+      // explicit user control path in togglePlayPause below.
+      play();
+    };
     const handlePause = () => {
       pause();
       flushProgress("pause");
@@ -217,6 +294,7 @@ export function usePlayer({
     };
     const handleTimeUpdate = () => {
       setCurrentTime(video.currentTime);
+      onTimeUpdate?.(video.currentTime);
       if (
         Number.isFinite(video.duration) &&
         video.duration > 0 &&
@@ -283,7 +361,59 @@ export function usePlayer({
     onEnded,
     onError,
     onProgress,
+    onTimeUpdate,
   ]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !remoteCommand) return;
+
+    const targetTime = Number(remoteCommand.currentTime);
+    const applyPlayback = async () => {
+      suppressPlaybackActionRef.current = true;
+
+      if (
+        typeof remoteCommand.playbackRate === "number" &&
+        remoteCommand.playbackRate > 0
+      ) {
+        video.playbackRate = remoteCommand.playbackRate;
+      }
+
+      if (Number.isFinite(targetTime)) {
+        const duration = Number.isFinite(video.duration)
+          ? video.duration
+          : Number.POSITIVE_INFINITY;
+        const nextTime = Math.max(0, Math.min(targetTime, duration));
+        const drift = Math.abs(video.currentTime - nextTime);
+        if (drift > REMOTE_COMMAND_SEEK_THRESHOLD_SECONDS) {
+          video.currentTime = nextTime;
+          setCurrentTime(video.currentTime);
+        }
+      }
+
+      if (
+        remoteCommand.type === "play" ||
+        remoteCommand.playbackStatus === "PLAYING"
+      ) {
+        if (video.paused) {
+          await video.play().catch(() => {});
+        }
+      } else if (
+        remoteCommand.type === "pause" ||
+        remoteCommand.playbackStatus === "PAUSED"
+      ) {
+        if (!video.paused) {
+          video.pause();
+        }
+      }
+
+      window.setTimeout(() => {
+        suppressPlaybackActionRef.current = false;
+      }, 250);
+    };
+
+    applyPlayback();
+  }, [remoteCommand, setCurrentTime]);
 
   // Progress tracking (debounced callback)
   useEffect(() => {
@@ -328,17 +458,18 @@ export function usePlayer({
     };
   }, [onProgress]);
 
-  // Sync playback state with video element
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    if (isPlaying && video.paused) {
-      video.play().catch(() => {});
-    } else if (!isPlaying && !video.paused) {
-      video.pause();
-    }
-  }, [isPlaying]);
+  // IMPORTANT: do not drive the media element from Zustand `isPlaying`.
+  //
+  // The store mirrors native media state for UI only. Previously this effect
+  // made the relationship bidirectional: native play/pause events updated the
+  // store and any store transition immediately called video.play()/pause()
+  // again. During a Watch Party content switch HLS emits several lifecycle
+  // events while detaching/attaching MediaSource; the bidirectional loop could
+  // then oscillate PLAYING/PAUSED for the entire newly selected video.
+  //
+  // Playback is now changed only by explicit user controls or an authoritative
+  // remote Watch Party command. Native media events continue to update Zustand
+  // so the controls remain accurate.
 
   // Sync volume
   useEffect(() => {
@@ -410,14 +541,25 @@ export function usePlayer({
 
   // Seek handler
   const seek = useCallback(
-    (time: number) => {
+    (time: number, options?: { silent?: boolean }) => {
       const video = videoRef.current;
       if (!video) return;
 
       video.currentTime = Math.max(0, Math.min(time, video.duration));
       setCurrentTime(video.currentTime);
+      if (
+        !options?.silent &&
+        !suppressPlaybackActionRef.current &&
+        !sourceTransitionRef.current
+      ) {
+        onPlaybackAction?.({
+          type: "seek",
+          currentTime: video.currentTime,
+          playbackRate: video.playbackRate || 1,
+        });
+      }
     },
-    [setCurrentTime],
+    [onPlaybackAction, setCurrentTime],
   );
 
   // Toggle play/pause
@@ -425,12 +567,28 @@ export function usePlayer({
     const video = videoRef.current;
     if (!video) return;
 
-    if (video.paused) {
+    // Only an explicit user action is allowed to become a Watch Party playback
+    // command. Native play/pause events can be generated by HLS while changing
+    // sources and previously caused a PLAY/PAUSE feedback loop after starting a
+    // poll winner.
+    const nextType: "play" | "pause" = video.paused ? "play" : "pause";
+    const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+    const playbackRate = video.playbackRate || 1;
+
+    if (nextType === "play") {
       video.play().catch(() => {});
     } else {
       video.pause();
     }
-  }, []);
+
+    if (!sourceTransitionRef.current && !suppressPlaybackActionRef.current) {
+      onPlaybackAction?.({
+        type: nextType,
+        currentTime,
+        playbackRate,
+      });
+    }
+  }, [onPlaybackAction]);
 
   // Fullscreen handlers
   const enterFullscreen = useCallback(async () => {

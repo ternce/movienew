@@ -100,7 +100,6 @@ services:
       - ./apps/api/src:/app/apps/api/src
       - ./apps/api/prisma:/app/apps/api/prisma
       - ./packages/shared/src:/app/packages/shared/src
-      - ./packages/shared/dist:/app/packages/shared/dist
       - api_video_uploads:/tmp/video-uploads
       - api_uploads:/app/uploads
     environment:
@@ -118,7 +117,7 @@ services:
       - MINIO_BUCKET_DOCUMENTS=documents
       - MINIO_BUCKET_AVATARS=avatars
       - UPLOAD_DIR=/app/uploads
-      - MINIO_PUBLIC_ENDPOINT=http://localhost:3000/minio
+      - MINIO_PUBLIC_ENDPOINT=http://192.168.0.103:3000/minio
       - VIDEO_PROCESSING_CONCURRENCY=1
       - JWT_SECRET=${JWT_SECRET:-dev-secret-key-change-in-production}
       - JWT_ACCESS_EXPIRATION=15m
@@ -153,12 +152,11 @@ services:
       - ./apps/web/types:/app/apps/web/types
       - ./apps/web/public:/app/apps/web/public
       - ./packages/shared/src:/app/packages/shared/src
-      - ./packages/shared/dist:/app/packages/shared/dist
     environment:
       - NODE_ENV=development
       - API_INTERNAL_URL=http://api:4000/api/v1
-      - NEXT_PUBLIC_API_URL=http://localhost:4000/api/v1
-      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+      - NEXT_PUBLIC_API_URL=http://192.168.0.103:4000/api/v1
+      - NEXT_PUBLIC_APP_URL=http://192.168.0.103:3000
       - NEXT_PUBLIC_APP_ENV=staging
       - NEXT_PUBLIC_ENABLE_TEST_PAYMENTS=true
       - MINIO_INTERNAL_ENDPOINT=http://minio:9000

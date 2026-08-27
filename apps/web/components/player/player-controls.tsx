@@ -20,6 +20,8 @@ import { PlayerSettingsMenu } from './player-settings-menu';
 
 interface PlayerControlsProps {
   title?: string;
+  /** Explicit play/pause intent. The media element, not Zustand, is authoritative. */
+  onPlayPause: () => void;
   onSeek: (time: number) => void;
   onQualityChange: (quality: VideoQuality) => void;
   onToggleFullscreen: () => void;
@@ -37,6 +39,7 @@ interface PlayerControlsProps {
  */
 export function PlayerControls({
   title,
+  onPlayPause,
   onSeek,
   onQualityChange,
   onToggleFullscreen,
@@ -52,7 +55,6 @@ export function PlayerControls({
     isPlaying,
     isFullscreen,
     isControlsVisible,
-    togglePlay,
     seekRelative,
   } = usePlayerStore();
 
@@ -71,7 +73,7 @@ export function PlayerControls({
         case ' ':
         case 'k':
           e.preventDefault();
-          togglePlay();
+          onPlayPause();
           break;
         case 'ArrowLeft':
           e.preventDefault();
@@ -135,7 +137,7 @@ export function PlayerControls({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [togglePlay, seekRelative, onSeek, onToggleFullscreen]);
+  }, [onPlayPause, seekRelative, onSeek, onToggleFullscreen]);
 
   return (
     <div
@@ -156,7 +158,7 @@ export function PlayerControls({
           {/* Play/Pause */}
           <button
             type="button"
-            onClick={togglePlay}
+            onClick={onPlayPause}
             className="p-2 md:p-2.5 hover:bg-white/10 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mp-accent-primary"
             aria-label={isPlaying ? 'Пауза' : 'Воспроизвести'}
           >

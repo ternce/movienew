@@ -10,6 +10,7 @@ import {
   Flag,
   Play,
   X,
+  Users,
   CaretDown,
   CaretUp,
   Lock,
@@ -48,6 +49,12 @@ type NextVideo = {
   episodeNumber?: number;
 };
 
+type WatchPartyCreateResponse = {
+  id: string;
+  inviteToken: string;
+  invitationUrl?: string;
+};
+
 const VideoPlayer = dynamic(
   () => import("@/components/player/video-player").then((m) => m.VideoPlayer),
   { ssr: false, loading: () => <VideoPlayerSkeleton /> },
@@ -81,6 +88,8 @@ export default function WatchPage() {
   const [nextEpisode, setNextEpisode] = React.useState<NextVideo | null>(null);
   const [nextCountdown, setNextCountdown] = React.useState(0);
   const [nextCancelled, setNextCancelled] = React.useState(false);
+  const [isCreatingWatchParty, setIsCreatingWatchParty] = React.useState(false);
+  const isCreatingWatchPartyRef = React.useRef(false);
   const isAuthenticated = useIsAuthenticated();
 
   // Fetch content metadata (works with both UUID and slug)
@@ -251,6 +260,67 @@ export default function WatchPage() {
     contentId,
     streamData?.contentType,
     streamData?.title,
+  ]);
+
+  const currentEpisodeId = React.useMemo(() => {
+    const candidates = [
+      streamData?.currentEpisodeId,
+      streamData?.episodeId,
+      contentDetail?.currentEpisodeId,
+      contentDetail?.episodeId,
+    ];
+
+    return candidates.find(
+      (candidate) => typeof candidate === "string" && candidate.trim(),
+    ) as string | undefined;
+  }, [
+    contentDetail?.currentEpisodeId,
+    contentDetail?.episodeId,
+    streamData?.currentEpisodeId,
+    streamData?.episodeId,
+  ]);
+
+  const handleCreateWatchParty = React.useCallback(async () => {
+    if (isCreatingWatchPartyRef.current) return;
+
+    if (!isAuthenticated) {
+      router.push(`/login?redirect=${encodeURIComponent(`/watch/${contentId}`)}`);
+      return;
+    }
+
+    isCreatingWatchPartyRef.current = true;
+    setIsCreatingWatchParty(true);
+
+    try {
+      const response = await api.post<WatchPartyCreateResponse>(
+        endpoints.watchParties.create,
+        {
+          contentId,
+          episodeId: currentEpisodeId || undefined,
+        },
+      );
+      const room = ((response as any)?.data ?? response) as WatchPartyCreateResponse;
+
+      if (!room?.inviteToken) {
+        throw new Error("Не удалось получить ссылку-приглашение для совместного просмотра");
+      }
+
+      router.push(`/watch-party/join/${room.inviteToken}`);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Не удалось создать совместный просмотр";
+      toast.error(message);
+    } finally {
+      isCreatingWatchPartyRef.current = false;
+      setIsCreatingWatchParty(false);
+    }
+  }, [
+    contentId,
+    currentEpisodeId,
+    isAuthenticated,
+    router,
   ]);
 
   const handleReport = React.useCallback(() => {
@@ -641,6 +711,16 @@ export default function WatchPage() {
             >
               <ShareNetwork className="w-4 h-4" />
               Поделиться
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={handleCreateWatchParty}
+              disabled={isCreatingWatchParty}
+            >
+              <Users className="w-4 h-4" />
+              {isCreatingWatchParty ? "Создание..." : "Совместный просмотр"}
             </Button>
             <Button variant="ghost" size="sm" onClick={handleReport}>
               <Flag className="w-4 h-4" />

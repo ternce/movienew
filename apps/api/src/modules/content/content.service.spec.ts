@@ -1,7 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
-import { AgeCategory, ContentStatus } from '@prisma/client';
-import { ContentType } from '@movie-platform/shared';
+import { AgeCategory, ContentStatus, ContentType } from '@prisma/client';
 
 import { ContentService } from './content.service';
 import { PrismaService } from '../../config/prisma.service';
@@ -33,6 +32,10 @@ describe('ContentService', () => {
         findUnique: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn(),
+      },
+      series: {
+        findUnique: jest.fn(),
       },
       category: {
         findMany: jest.fn(),
@@ -51,6 +54,9 @@ describe('ContentService', () => {
       contentGenre: {
         deleteMany: jest.fn(),
         createMany: jest.fn(),
+      },
+      auditLog: {
+        create: jest.fn(),
       },
       $transaction: jest.fn(),
     };
@@ -150,7 +156,6 @@ describe('ContentService', () => {
       );
     });
   });
-
   // ============================================
   // findAll Tests
   // ============================================
@@ -830,13 +835,129 @@ describe('ContentService', () => {
       prismaService.$transaction.mockImplementation(async (fn: any) => fn(prismaService));
       prismaService.content.update.mockResolvedValue(updatedContent);
 
-      await service.update(contentId, { status: ContentStatus.PUBLISHED });
+      await service.update(contentId, { status: ContentStatus.PUBLISHED }, { id: 'admin-1', role: 'ADMIN' });
 
       expect(prismaService.content.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             status: ContentStatus.PUBLISHED,
             publishedAt: expect.any(Date),
+          }),
+        }),
+      );
+    });
+
+    it('should publish child episodes when publishing structured content', async () => {
+      const existingContent = createContentWithRelations({
+        id: contentId,
+        contentType: ContentType.SERIES,
+        status: ContentStatus.DRAFT,
+        publishedAt: null,
+      });
+      const updatedContent = createContentWithRelations({
+        id: contentId,
+        contentType: ContentType.SERIES,
+        status: ContentStatus.PUBLISHED,
+      });
+
+      prismaService.content.findUnique.mockResolvedValue({
+        ...existingContent,
+        publishedAt: null,
+      });
+      prismaService.$transaction.mockImplementation(async (fn: any) => fn(prismaService));
+      prismaService.content.update.mockResolvedValue(updatedContent);
+      prismaService.series.findUnique.mockResolvedValue({
+        id: 'root-series-1',
+        content: {
+          ageCategory: AgeCategory.SIX_PLUS,
+          isFree: true,
+          individualPrice: null,
+        },
+      });
+      prismaService.content.updateMany.mockResolvedValue({ count: 2 });
+
+      await service.update(
+        contentId,
+        { status: ContentStatus.PUBLISHED },
+        { id: 'admin-1', role: 'ADMIN' },
+      );
+
+      expect(prismaService.content.updateMany).toHaveBeenCalledWith({
+        where: {
+          series: { parentSeriesId: 'root-series-1' },
+        },
+        data: {
+          status: ContentStatus.PUBLISHED,
+          publishedAt: expect.any(Date),
+          ageCategory: AgeCategory.SIX_PLUS,
+          isFree: true,
+          individualPrice: null,
+        },
+      });
+    });
+
+    it('should publish child episodes when moderator approves structured content', async () => {
+      const existingContent = createContentWithRelations({
+        id: contentId,
+        contentType: ContentType.SERIES,
+        status: ContentStatus.PENDING,
+        publishedAt: null,
+      });
+      const updatedContent = createContentWithRelations({
+        id: contentId,
+        contentType: ContentType.SERIES,
+        status: ContentStatus.PUBLISHED,
+      });
+
+      prismaService.content.findUnique.mockResolvedValue({
+        ...existingContent,
+        publishedAt: null,
+      });
+      prismaService.$transaction.mockImplementation(async (fn: any) => fn(prismaService));
+      prismaService.content.update.mockResolvedValue(updatedContent);
+      prismaService.series.findUnique.mockResolvedValue({
+        id: 'root-series-1',
+        content: {
+          ageCategory: AgeCategory.SIX_PLUS,
+          isFree: true,
+          individualPrice: null,
+        },
+      });
+      prismaService.content.updateMany.mockResolvedValue({ count: 2 });
+      prismaService.auditLog.create.mockResolvedValue({});
+
+      await service.moderateContent(
+        contentId,
+        'approve',
+        { id: 'moderator-1', role: 'MODERATOR' },
+      );
+
+      expect(prismaService.content.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: contentId },
+          data: expect.objectContaining({
+            status: ContentStatus.PUBLISHED,
+            publishedAt: expect.any(Date),
+          }),
+        }),
+      );
+      expect(prismaService.content.updateMany).toHaveBeenCalledWith({
+        where: {
+          series: { parentSeriesId: 'root-series-1' },
+        },
+        data: {
+          status: ContentStatus.PUBLISHED,
+          publishedAt: expect.any(Date),
+          ageCategory: AgeCategory.SIX_PLUS,
+          isFree: true,
+          individualPrice: null,
+        },
+      });
+      expect(prismaService.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: 'CONTENT_APPROVE',
+            entityId: contentId,
           }),
         }),
       );

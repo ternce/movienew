@@ -19,6 +19,11 @@ RUN npm rebuild bcrypt
 # Copy source code (will be overwritten by volume mount for source directories)
 COPY . .
 
+# Build the shared workspace package before starting the API.
+# @movie-platform/shared resolves through its dist/ entrypoints, so the API
+# compiler needs these files to exist inside the image.
+RUN npm run build --workspace=@movie-platform/shared
+
 # Generate Prisma client
 RUN npm run db:generate --workspace=apps/api
 

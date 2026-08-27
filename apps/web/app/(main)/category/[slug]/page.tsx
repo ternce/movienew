@@ -101,10 +101,10 @@ export default function CategoryPage() {
     }));
 
   const tabs: { value: ContentTab; label: string }[] = [
-    { value: "all", label: "Р’СЃРµ" },
-    { value: "series", label: "РЎРµСЂРёР°Р»С‹" },
+    { value: "all", label: "Все" },
+    { value: "series", label: "Сериалы" },
     { value: "videos", label: "Видео" },
-    { value: "tutorials", label: "РћР±СѓС‡РµРЅРёРµ" },
+    { value: "tutorials", label: "Обучение" },
   ];
 
   const showSeries =
@@ -122,7 +122,7 @@ export default function CategoryPage() {
           {categoryName}
         </h1>
         <p className="text-sm text-mp-text-secondary mt-1">
-          {total} СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ РІ РєР°С‚РµРіРѕСЂРёРё
+          {total} результатов в категории
         </p>
       </div>
 
@@ -156,10 +156,10 @@ export default function CategoryPage() {
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <Funnel className="w-12 h-12 text-mp-text-disabled mb-4" />
           <h3 className="text-lg font-medium text-mp-text-primary mb-2">
-            РљРѕРЅС‚РµРЅС‚ РЅРµ РЅР°Р№РґРµРЅ
+            Контент не найден
           </h3>
           <p className="text-mp-text-secondary">
-            Р’ РґР°РЅРЅРѕР№ РєР°С‚РµРіРѕСЂРёРё РїРѕРєР° РЅРµС‚ РєРѕРЅС‚РµРЅС‚Р°
+            В данной категории пока нет контента
           </p>
         </div>
       ) : (
@@ -169,7 +169,7 @@ export default function CategoryPage() {
             <section className="mb-8">
               {activeTab === "all" && (
                 <h2 className="text-lg font-semibold text-mp-text-primary mb-4">
-                  РЎРµСЂРёР°Р»С‹
+                  Сериалы
                 </h2>
               )}
               <ContentGrid>
@@ -201,7 +201,7 @@ export default function CategoryPage() {
             <section className="mb-8">
               {activeTab === "all" && (
                 <h2 className="text-lg font-semibold text-mp-text-primary mb-4">
-                  РћР±СѓС‡РµРЅРёРµ
+                  Обучение
                 </h2>
               )}
               <ContentGrid>

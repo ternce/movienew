@@ -4,7 +4,11 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 import { usePlayerStore, type VideoQuality } from "@/stores/player.store";
-import { usePlayer } from "./use-player";
+import {
+  usePlayer,
+  type PlaybackLocalAction,
+  type PlaybackRemoteCommand,
+} from "./use-player";
 import { PlayerControls, PlayerTopBar } from "./player-controls";
 import { PlayerOverlay, PlayerGradientOverlay } from "./player-overlay";
 
@@ -21,6 +25,12 @@ export interface VideoPlayerProps {
   autoPlay?: boolean;
   /** Resume from position (seconds) */
   initialTime?: number;
+  /** Remote playback command from a synchronized room */
+  remoteCommand?: PlaybackRemoteCommand | null;
+  /** Local playback action callback for synchronized room hosts */
+  onPlaybackAction?: (action: PlaybackLocalAction) => void;
+  /** High-frequency playback position callback */
+  onTimeUpdate?: (time: number) => void;
   /** Progress callback (every 10s and on pause/page lifecycle events) */
   onProgress?: (
     time: number,
@@ -64,6 +74,9 @@ export function VideoPlayer({
   subtitle,
   autoPlay = false,
   initialTime = 0,
+  remoteCommand,
+  onPlaybackAction,
+  onTimeUpdate,
   onProgress,
   onEnded,
   onError,
@@ -101,6 +114,9 @@ export function VideoPlayer({
     src,
     autoPlay,
     initialTime,
+    remoteCommand,
+    onPlaybackAction,
+    onTimeUpdate,
     onProgress,
     onEnded,
     onError,
@@ -278,6 +294,7 @@ export function VideoPlayer({
       <div data-controls>
         <PlayerControls
           title={title}
+          onPlayPause={togglePlayPause}
           onSeek={seek}
           onQualityChange={handleQualityChange}
           onToggleFullscreen={toggleFullscreen}

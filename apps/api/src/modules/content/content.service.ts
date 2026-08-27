@@ -1439,7 +1439,7 @@ export class ContentService {
         }
       }
 
-      return tx.content.update({
+      const updated = await tx.content.update({
         where: { id },
         data: updateData,
         include: {
@@ -1464,6 +1464,15 @@ export class ContentService {
           _count: { select: { comments: true, likes: true, ratings: true } },
         },
       });
+
+      if (
+        requestedStatus === ContentStatus.PUBLISHED &&
+        (updated.contentType === "SERIES" || updated.contentType === "TUTORIAL")
+      ) {
+        await this.publishStructuredChildContent(tx, id);
+      }
+
+      return updated;
     });
 
     await this.cache.invalidatePattern("content:*");
@@ -1569,6 +1578,13 @@ export class ContentService {
         },
       });
 
+      if (
+        nextStatus === ContentStatus.PUBLISHED &&
+        (updated.contentType === "SERIES" || updated.contentType === "TUTORIAL")
+      ) {
+        await this.publishStructuredChildContent(tx, id);
+      }
+
       await tx.auditLog.create({
         data: {
           userId: actor?.id,
@@ -1594,6 +1610,39 @@ export class ContentService {
       ...this.mapContentToDetailDto(content),
       status: content.status,
     };
+  }
+
+  private async publishStructuredChildContent(tx: any, rootContentId: string) {
+    const rootSeries = await tx.series.findUnique({
+      where: { contentId: rootContentId },
+      select: {
+        id: true,
+        content: {
+          select: {
+            ageCategory: true,
+            isFree: true,
+            individualPrice: true,
+          },
+        },
+      },
+    });
+
+    if (!rootSeries) {
+      return;
+    }
+
+    await tx.content.updateMany({
+      where: {
+        series: { parentSeriesId: rootSeries.id },
+      },
+      data: {
+        status: ContentStatus.PUBLISHED,
+        publishedAt: new Date(),
+        ageCategory: rootSeries.content.ageCategory,
+        isFree: rootSeries.content.isFree,
+        individualPrice: rootSeries.content.individualPrice,
+      },
+    });
   }
 
   // ===================== Mapping helpers =====================

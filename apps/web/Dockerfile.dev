@@ -2,41 +2,29 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install dependencies first (cached layer)
-COPY package*.json ./
+# Сначала копируем только package-файлы,
+# чтобы слой npm install нормально кэшировался.
+COPY package.json package-lock.json ./
 COPY apps/web/package*.json ./apps/web/
 COPY packages/shared/package*.json ./packages/shared/
 COPY packages/typescript-config/package*.json ./packages/typescript-config/
 
+# Устанавливаем зависимости всего monorepo.
 RUN npm install
 
-# Copy source code
+# Копируем исходники проекта.
 COPY . .
 
-# Build the shared package (required by web)
-RUN cd packages/shared && npx tsup src/index.ts --format cjs,esm --dts
+# Собираем shared-пакет, который используется web-приложением.
+RUN npm run build --workspace=@movie-platform/shared
 
-# Public env vars baked into the Next.js production build.
-# Override at build time via --build-arg or in docker-compose.
-ARG NEXT_PUBLIC_API_URL=http://localhost:4000/api/v1
-ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
-ARG MINIO_INTERNAL_ENDPOINT=http://minio:9000
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
-ENV MINIO_INTERNAL_ENDPOINT=$MINIO_INTERNAL_ENDPOINT
+WORKDIR /app/apps/web
 
-# Build the Next.js app for production
-RUN cd apps/web && npx next build
-
-# Copy static assets into standalone output (required by standalone mode)
-RUN cp -r apps/web/public apps/web/.next/standalone/apps/web/public && \
-    cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
-
-WORKDIR /app/apps/web/.next/standalone/apps/web
-
-ENV PORT=3000
+ENV NODE_ENV=development
+ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
 
 EXPOSE 3000
 
-CMD ["node", "server.js"]
+CMD ["npm", "run", "dev"]

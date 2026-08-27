@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, HttpStatus, Controller, Get, Post, Body } from '@nestjs/common';
-import * as request from 'supertest';
+import request from 'supertest';
 import {
   HttpExceptionFilter,
   CodedHttpException,

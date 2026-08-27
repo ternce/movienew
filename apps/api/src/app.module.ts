@@ -24,6 +24,7 @@ import { ContentModule } from './modules/content/content.module';
 import { CommentsModule } from './modules/comments/comments.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { GenresModule } from './modules/genres/genres.module';
+import { MiniChatModule } from './modules/mini-chat/mini-chat.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PartnersModule } from './modules/partners/partners.module';
 import { PaymentsModule } from './modules/payments/payments.module';
@@ -31,6 +32,7 @@ import { StoreModule } from './modules/store/store.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { UsersModule } from './modules/users/users.module';
+import { WatchPartyModule } from './modules/watch-party/watch-party.module';
 
 @Module({
   imports: [
@@ -108,6 +110,8 @@ import { UsersModule } from './modules/users/users.module';
     AdminModule,
     UploadModule,
     GenresModule,
+    WatchPartyModule,
+    MiniChatModule,
   ],
   providers: [
     // Rate limiting guard (applied first)

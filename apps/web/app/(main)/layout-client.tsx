@@ -9,6 +9,7 @@ import { MobileBottomNav } from "@/components/layout/mobile-bottom-nav";
 import { PageTransition } from "@/components/layout/page-transition";
 import { MobileSearchOverlay } from "@/components/search/mobile-search-overlay";
 import { PendingDocumentsModal } from "@/components/documents/pending-documents-modal";
+import { MiniChatWidget } from "@/components/chat/mini-chat-widget";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/stores/ui.store";
 
@@ -25,11 +26,16 @@ export default function MainLayoutClient({
   const setSearchOpen = useUIStore((state) => state.setSearchOpen);
   const pathname = usePathname();
   const isShortsRoute = pathname.startsWith("/shorts");
+  const isWatchPartyRoute = pathname.startsWith("/watch-party");
 
   useEffect(() => {
     setSearchOpen(false);
     setMobileMenuOpen(false);
   }, [pathname, setMobileMenuOpen, setSearchOpen]);
+
+  if (isWatchPartyRoute) {
+    return <>{children}</>;
+  }
 
   return (
     <div className="mp-home-shell min-h-screen overflow-x-hidden bg-[#080013] text-white">
@@ -67,6 +73,9 @@ export default function MainLayoutClient({
 
       {/* Blocking modal for pending legal documents */}
       <PendingDocumentsModal />
+
+      {/* Lightweight private Mini Chat */}
+      <MiniChatWidget />
     </div>
   );
 }

@@ -47,58 +47,65 @@ enum AgeCategory {
 }
 
 model User {
-  id                 String              @id @default(uuid())
-  email              String              @unique
-  passwordHash       String              @map("password_hash")
-  phone              String?
-  firstName          String              @map("first_name")
-  lastName           String              @map("last_name")
-  dateOfBirth        DateTime            @map("date_of_birth")
-  ageCategory        AgeCategory         @map("age_category")
-  avatarUrl          String?             @map("avatar_url")
-  bannerUrl          String?             @map("banner_url")
-  username           String?             @unique
-  usernameUpdatedAt  DateTime?           @map("username_updated_at")
-  usernameChangeCount Int                @default(0) @map("username_change_count")
-  bio                String?             @db.Text
-  verificationStatus VerificationStatus  @default(UNVERIFIED) @map("verification_status")
-  verificationMethod VerificationMethod? @map("verification_method")
-  role               UserRole            @default(CLIENT)
-  referralCode       String              @unique @map("referral_code")
-  referredById       String?             @map("referred_by_id")
-  bonusBalance       Decimal             @default(0) @map("bonus_balance") @db.Decimal(12, 2)
-  emailVerified      Boolean             @default(false) @map("email_verified")
-  referralCodeActive Boolean             @default(true) @map("referral_code_active")
-  isActive           Boolean             @default(true) @map("is_active")
-  lastLoginAt        DateTime?           @map("last_login_at")
-  createdAt          DateTime            @default(now()) @map("created_at")
-  updatedAt          DateTime            @updatedAt @map("updated_at")
+  id                  String              @id @default(uuid())
+  email               String              @unique
+  passwordHash        String              @map("password_hash")
+  phone               String?
+  firstName           String              @map("first_name")
+  lastName            String              @map("last_name")
+  dateOfBirth         DateTime            @map("date_of_birth")
+  ageCategory         AgeCategory         @map("age_category")
+  avatarUrl           String?             @map("avatar_url")
+  bannerUrl           String?             @map("banner_url")
+  username            String?             @unique
+  usernameUpdatedAt   DateTime?           @map("username_updated_at")
+  usernameChangeCount Int                 @default(0) @map("username_change_count")
+  bio                 String?             @db.Text
+  verificationStatus  VerificationStatus  @default(UNVERIFIED) @map("verification_status")
+  verificationMethod  VerificationMethod? @map("verification_method")
+  role                UserRole            @default(CLIENT)
+  referralCode        String              @unique @map("referral_code")
+  referredById        String?             @map("referred_by_id")
+  bonusBalance        Decimal             @default(0) @map("bonus_balance") @db.Decimal(12, 2)
+  emailVerified       Boolean             @default(false) @map("email_verified")
+  referralCodeActive  Boolean             @default(true) @map("referral_code_active")
+  isActive            Boolean             @default(true) @map("is_active")
+  lastLoginAt         DateTime?           @map("last_login_at")
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
 
   // Relations
-  referredBy            User?                  @relation("Referrals", fields: [referredById], references: [id])
-  referrals             User[]                 @relation("Referrals")
-  verifications         UserVerification[]
-  sessions              UserSession[]
-  subscriptions         UserSubscription[]
-  watchHistory          WatchHistory[]
-  playlists             Playlist[]
-  paymentMethods        PaymentMethod[]
-  transactions          Transaction[]
-  partnerAsPartner      PartnerRelationship[]  @relation("PartnerRelation")
-  partnerAsReferral     PartnerRelationship[]  @relation("ReferralRelation")
-  commissions           PartnerCommission[]    @relation("PartnerCommissions")
-  sourceUserCommissions PartnerCommission[]    @relation("SourceUserCommissions")
-  withdrawals           WithdrawalRequest[]
-  bonusTransactions     BonusTransaction[]
-  orders                Order[]
-  notifications         UserNotification[]
-  newsletterPrefs       NewsletterPreferences?
-  documentAcceptances   DocumentAcceptance[]
-  genrePreferences      UserGenrePreference[]
-  comments              Comment[]
-  contentRatings        ContentRating[]
-  contentLikes          ContentLike[]
-  createdContent        Content[]              @relation("CreatedContent")
+  referredBy                     User?                           @relation("Referrals", fields: [referredById], references: [id])
+  referrals                      User[]                          @relation("Referrals")
+  verifications                  UserVerification[]
+  sessions                       UserSession[]
+  subscriptions                  UserSubscription[]
+  watchHistory                   WatchHistory[]
+  playlists                      Playlist[]
+  paymentMethods                 PaymentMethod[]
+  transactions                   Transaction[]
+  partnerAsPartner               PartnerRelationship[]           @relation("PartnerRelation")
+  partnerAsReferral              PartnerRelationship[]           @relation("ReferralRelation")
+  commissions                    PartnerCommission[]             @relation("PartnerCommissions")
+  sourceUserCommissions          PartnerCommission[]             @relation("SourceUserCommissions")
+  withdrawals                    WithdrawalRequest[]
+  bonusTransactions              BonusTransaction[]
+  orders                         Order[]
+  notifications                  UserNotification[]
+  newsletterPrefs                NewsletterPreferences?
+  documentAcceptances            DocumentAcceptance[]
+  genrePreferences               UserGenrePreference[]
+  comments                       Comment[]
+  contentRatings                 ContentRating[]
+  contentLikes                   ContentLike[]
+  createdContent                 Content[]                       @relation("CreatedContent")
+  hostedWatchPartyRooms          WatchPartyRoom[]                @relation("WatchPartyHost")
+  watchPartyParticipants         WatchPartyParticipant[]
+  watchPartyMessages             WatchPartyMessage[]
+  createdWatchPartyPolls         WatchPartyPoll[]                @relation("WatchPartyPollCreator")
+  watchPartyPollVotes            WatchPartyPollVote[]
+  directConversationParticipants DirectConversationParticipant[]
+  directMessages                 DirectMessage[]
 
   // Admin relations
   reviewedVerifications         UserVerification[]  @relation("ReviewedVerifications")
@@ -197,6 +204,37 @@ enum EncodingStatus {
   FAILED
 }
 
+enum WatchPartyRoomStatus {
+  WAITING
+  ACTIVE
+  ENDED
+}
+
+enum WatchPartyPlaybackStatus {
+  PLAYING
+  PAUSED
+}
+
+enum WatchPartyParticipantRole {
+  HOST
+  PARTICIPANT
+}
+
+enum WatchPartyConnectionStatus {
+  ONLINE
+  OFFLINE
+}
+
+enum WatchPartyPollStatus {
+  ACTIVE
+  CLOSED
+}
+
+enum DirectMessageType {
+  TEXT
+  QUICK_REACTION
+}
+
 model Content {
   id              String        @id @default(uuid())
   title           String
@@ -222,20 +260,24 @@ model Content {
   edgecenterClientId String? @map("edgecenter_client_id")
 
   // Relations
-  category           Category             @relation(fields: [categoryId], references: [id])
-  creator            User?                @relation("CreatedContent", fields: [creatorId], references: [id], onDelete: SetNull)
-  series             Series?
-  seasons            ContentSeason[]
-  videoFiles         VideoFile[]
-  tags               ContentTag[]
-  genres             ContentGenre[]
-  watchHistory       WatchHistory[]
-  playlistItems      PlaylistItem[]
-  subscriptionPlans  SubscriptionPlan[]
-  subscriptionAccess SubscriptionAccess[]
-  comments           Comment[]
-  ratings            ContentRating[]
-  likes              ContentLike[]
+  category                     Category               @relation(fields: [categoryId], references: [id])
+  creator                      User?                  @relation("CreatedContent", fields: [creatorId], references: [id], onDelete: SetNull)
+  series                       Series?
+  seasons                      ContentSeason[]
+  videoFiles                   VideoFile[]
+  tags                         ContentTag[]
+  genres                       ContentGenre[]
+  watchHistory                 WatchHistory[]
+  playlistItems                PlaylistItem[]
+  subscriptionPlans            SubscriptionPlan[]
+  subscriptionAccess           SubscriptionAccess[]
+  comments                     Comment[]
+  ratings                      ContentRating[]
+  likes                        ContentLike[]
+  watchPartyRooms              WatchPartyRoom[]       @relation("WatchPartyContent")
+  watchPartyEpisodes           WatchPartyRoom[]       @relation("WatchPartyEpisode")
+  watchPartyPollOptions        WatchPartyPollOption[] @relation("WatchPartyPollOptionContent")
+  watchPartyPollEpisodeOptions WatchPartyPollOption[] @relation("WatchPartyPollOptionEpisode")
 
   @@index([slug])
   @@index([contentType])
@@ -352,6 +394,169 @@ model VideoFile {
 
   @@unique([contentId, quality])
   @@map("video_files")
+}
+
+model WatchPartyRoom {
+  id             String                   @id @default(uuid())
+  inviteToken    String                   @unique @map("invite_token")
+  hostUserId     String                   @map("host_user_id")
+  contentId      String                   @map("content_id")
+  episodeId      String?                  @map("episode_id")
+  status         WatchPartyRoomStatus     @default(WAITING)
+  currentTime    Int                      @default(0) @map("current_time")
+  playbackStatus WatchPartyPlaybackStatus @default(PAUSED) @map("playback_status")
+  playbackRate   Float                    @default(1) @map("playback_rate")
+  sequence       Int                      @default(0)
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  updatedAt      DateTime                 @updatedAt @map("updated_at")
+  endedAt        DateTime?                @map("ended_at")
+
+  host         User                    @relation("WatchPartyHost", fields: [hostUserId], references: [id], onDelete: Cascade)
+  content      Content                 @relation("WatchPartyContent", fields: [contentId], references: [id], onDelete: Cascade)
+  episode      Content?                @relation("WatchPartyEpisode", fields: [episodeId], references: [id], onDelete: SetNull)
+  participants WatchPartyParticipant[]
+  messages     WatchPartyMessage[]
+  polls        WatchPartyPoll[]
+
+  @@index([hostUserId])
+  @@index([contentId])
+  @@index([episodeId])
+  @@index([status, updatedAt])
+  @@map("watch_party_rooms")
+}
+
+model WatchPartyParticipant {
+  id               String                     @id @default(uuid())
+  roomId           String                     @map("room_id")
+  userId           String                     @map("user_id")
+  role             WatchPartyParticipantRole  @default(PARTICIPANT)
+  connectionStatus WatchPartyConnectionStatus @default(ONLINE) @map("connection_status")
+  joinedAt         DateTime                   @default(now()) @map("joined_at")
+  leftAt           DateTime?                  @map("left_at")
+  lastSeenAt       DateTime                   @default(now()) @map("last_seen_at")
+
+  room WatchPartyRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([userId])
+  @@index([roomId, connectionStatus])
+  @@map("watch_party_participants")
+}
+
+model WatchPartyMessage {
+  id           String   @id @default(uuid())
+  roomId       String   @map("room_id")
+  senderUserId String   @map("sender_user_id")
+  text         String   @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  room   WatchPartyRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sender User           @relation(fields: [senderUserId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt])
+  @@index([senderUserId])
+  @@map("watch_party_messages")
+}
+
+model WatchPartyPoll {
+  id              String               @id @default(uuid())
+  roomId          String               @map("room_id")
+  createdByUserId String               @map("created_by_user_id")
+  status          WatchPartyPollStatus @default(ACTIVE)
+  createdAt       DateTime             @default(now()) @map("created_at")
+  closedAt        DateTime?            @map("closed_at")
+
+  room      WatchPartyRoom         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  createdBy User                   @relation("WatchPartyPollCreator", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  options   WatchPartyPollOption[]
+  votes     WatchPartyPollVote[]
+
+  @@index([roomId, status])
+  @@index([createdByUserId])
+  @@map("watch_party_polls")
+}
+
+model WatchPartyPollOption {
+  id        String   @id @default(uuid())
+  pollId    String   @map("poll_id")
+  contentId String   @map("content_id")
+  episodeId String?  @map("episode_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  poll    WatchPartyPoll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  content Content              @relation("WatchPartyPollOptionContent", fields: [contentId], references: [id], onDelete: Cascade)
+  episode Content?             @relation("WatchPartyPollOptionEpisode", fields: [episodeId], references: [id], onDelete: SetNull)
+  votes   WatchPartyPollVote[]
+
+  @@index([pollId])
+  @@index([contentId])
+  @@index([episodeId])
+  @@map("watch_party_poll_options")
+}
+
+model WatchPartyPollVote {
+  id        String   @id @default(uuid())
+  pollId    String   @map("poll_id")
+  optionId  String   @map("option_id")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  poll   WatchPartyPoll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  option WatchPartyPollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  user   User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, userId])
+  @@index([optionId])
+  @@index([userId])
+  @@map("watch_party_poll_votes")
+}
+
+model DirectConversation {
+  id             String   @id @default(uuid())
+  participantKey String   @unique @map("participant_key")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  participants DirectConversationParticipant[]
+  messages     DirectMessage[]
+
+  @@index([updatedAt])
+  @@map("direct_conversations")
+}
+
+model DirectConversationParticipant {
+  conversationId    String   @map("conversation_id")
+  userId            String   @map("user_id")
+  lastReadMessageId String?  @map("last_read_message_id")
+  joinedAt          DateTime @default(now()) @map("joined_at")
+
+  conversation DirectConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId])
+  @@index([lastReadMessageId])
+  @@map("direct_conversation_participants")
+}
+
+model DirectMessage {
+  id              String            @id @default(uuid())
+  conversationId  String            @map("conversation_id")
+  senderUserId    String            @map("sender_user_id")
+  type            DirectMessageType @default(TEXT)
+  text            String?           @db.Text
+  reactionCode    String?           @map("reaction_code")
+  clientMessageId String?           @map("client_message_id")
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  conversation DirectConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User               @relation(fields: [senderUserId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, senderUserId, clientMessageId])
+  @@index([conversationId, createdAt])
+  @@index([senderUserId])
+  @@map("direct_messages")
 }
 
 model Category {

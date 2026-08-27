@@ -57,7 +57,7 @@
   }
 }
 
-/* Content moderation вЂ” scoped SESH admin surface */
+/* Content moderation — scoped SESH admin surface */
 .sesh-moderation-page {
   position: relative;
   min-height: calc(100vh - 4rem);
@@ -376,7 +376,7 @@
 .sesh-data-table-row-actions:hover { background: rgba(145, 23, 130, 0.12) !important; }
 
 /* =========================================================
-   SESH ADMIN SYSTEM вЂ” shared across every /admin route
+   SESH ADMIN SYSTEM — shared across every /admin route
    ========================================================= */
 .sesh-admin-shell {
   min-width: 0;
@@ -907,7 +907,7 @@
   .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
   .safe-top { padding-top: env(safe-area-inset-top, 0px); }
 
-  /* Shorts feed viewport height вЂ” accounts for header + mobile bottom nav + safe area */
+  /* Shorts feed viewport height — accounts for header + mobile bottom nav + safe area */
   .shorts-viewport-height {
     height: calc(100dvh - 4rem);
   }
@@ -2422,7 +2422,7 @@
     scroll-snap-align: start;
   }
 
-  /* Gradient text utility вЂ” vivid white-to-violet */
+  /* Gradient text utility — vivid white-to-violet */
   .text-gradient-vivid {
     background: linear-gradient(135deg, #F5F7FF 0%, #C94BFF 100%);
     -webkit-background-clip: text;
@@ -2706,7 +2706,7 @@
   75% { transform: translateY(-30px) translateX(15px); opacity: 0.9; }
 }
 
-/* Gradient border trick вЂ” parent has gradient bg, inner child has solid bg */
+/* Gradient border trick — parent has gradient bg, inner child has solid bg */
 .gradient-border {
   position: relative;
   background: linear-gradient(135deg, rgba(201,75,255,0.3), rgba(40,224,196,0.3));
@@ -3974,7 +3974,7 @@
 
 @media (max-width: 767px) {
 
-  /* РџРѕР»РЅРѕСЌРєСЂР°РЅРЅС‹Р№ РєРѕРЅС‚РµР№РЅРµСЂ С€РѕСЂС‚СЃРѕРІ */
+  /* Полноэкранный контейнер шортсов */
   .shorts-viewport-height {
     position: relative;
     width: 100vw !important;
@@ -3996,7 +3996,7 @@
     background: #05020b;
   }
 
-  /* Р’СЃРµ РІР»РѕР¶РµРЅРЅС‹Рµ РєРѕРЅС‚РµР№РЅРµСЂС‹ РЅР° РІСЃСЋ С€РёСЂРёРЅСѓ */
+  /* Все вложенные контейнеры на всю ширину */
   .shorts-viewport-height > * {
     width: 100% !important;
     max-width: 100% !important;
@@ -4025,7 +4025,7 @@
     box-shadow: none !important;
   }
 
-  /* Р’РёРґРµРѕ */
+  /* Видео */
   .shorts-viewport-height video,
   .shorts-viewport-height img {
     width: 100% !important;
@@ -4035,7 +4035,7 @@
     object-position: center center !important;
   }
 
-  /* Р—Р°С‚РµРјРЅРµРЅРёРµ СЃРІРµСЂС…Сѓ */
+  /* Затемнение сверху */
   .shorts-viewport-height::before {
     content: '';
     position: absolute;
@@ -4054,7 +4054,7 @@
     );
   }
 
-  /* Р—Р°С‚РµРјРЅРµРЅРёРµ СЃРЅРёР·Сѓ РїРѕРґ С‚РµРєСЃС‚ */
+  /* Затемнение снизу под текст */
   .shorts-viewport-height::after {
     content: '';
     position: absolute;
@@ -4074,7 +4074,7 @@
     );
   }
 
-  /* Р‘Р»РѕРє РґРµР№СЃС‚РІРёР№ СЃРїСЂР°РІР° */
+  /* Блок действий справа */
   .shorts-actions {
     right: 14px !important;
     bottom: 140px !important;
@@ -4098,7 +4098,7 @@
       0 0 18px rgba(215,10,42,0.08);
   }
 
-  /* РРЅС„РѕСЂРјР°С†РёСЏ СЃРЅРёР·Сѓ */
+  /* Информация снизу */
   .shorts-info {
     left: 16px !important;
     right: 80px !important;
@@ -4119,7 +4119,7 @@
     color: rgba(255,255,255,0.82);
   }
 
-  /* РђРЅРёРјР°С†РёСЏ РїРѕСЏРІР»РµРЅРёСЏ */
+  /* Анимация появления */
   .shorts-info,
   .shorts-actions {
     animation: shortsFadeIn .35s ease;
@@ -5227,7 +5227,7 @@
   }
 }
 
-/* СѓР±РёСЂР°РµРј СЃР°РјС‹Рµ С‚СЏР¶С‘Р»С‹Рµ blur/С‚РµРЅРё РІРѕ РІСЂРµРјСЏ hover РЅР° РєР°С‚Р°Р»РѕРіР°С… */
+/* убираем самые тяжёлые blur/тени во время hover на каталогах */
 .sesh-catalog-page .sesh-content-card,
 .sesh-catalog-page .content-card {
   contain: layout paint style;
@@ -5663,13 +5663,13 @@
   }
 }
 
-/* С‡С‚РѕР±С‹ РѕРІРµСЂР»РµРё РЅРµ Р·Р°СЃС‚Р°РІР»СЏР»Рё РІСЃС‘ РїРµСЂРµСЂРёСЃРѕРІС‹РІР°С‚СЊСЃСЏ */
+/* чтобы оверлеи не заставляли всё перерисовываться */
 .sesh-catalog-page .video-card::after,
 .sesh-catalog-page .content-card::after {
   display: none !important;
 }
 
-/* mobile: РІРѕРѕР±С‰Рµ Р±РµР· hover-Р°РЅРёРјР°С†РёР№ */
+/* mobile: вообще без hover-анимаций */
 @media (max-width: 767px) {
   .sesh-content-card,
   .content-card,
@@ -5923,7 +5923,7 @@
   }
 }
 
-/* Р±С‹СЃС‚СЂС‹Р№ РѕС‚РєР»РёРє РёРЅС‚РµСЂС„РµР№СЃР° */
+/* быстрый отклик интерфейса */
 .sesh-content-card,
 .content-card,
 .video-card,
@@ -5939,14 +5939,14 @@
   transition-delay: 0ms !important;
 }
 
-/* hover Р±РµР· С‚СЏР¶С‘Р»РѕРіРѕ scale */
+/* hover без тяжёлого scale */
 .sesh-content-card:hover,
 .content-card:hover,
 .video-card:hover {
   transform: translateY(-1px) !important;
 }
 
-/* РјРѕР±РёР»СЊРЅР°СЏ РІРµСЂСЃРёСЏ вЂ” Р±РµР· hover-Р°РЅРёРјР°С†РёР№ */
+/* мобильная версия — без hover-анимаций */
 @media (max-width: 767px) {
   .sesh-content-card,
   .content-card,
@@ -5957,7 +5957,7 @@
   }
 }
 
-/* РЈР±РёСЂР°РµРј СЂРѕР·РѕРІРѕРµ СЃРІРµС‡РµРЅРёРµ РЅР° СЃС‚СЂР°РЅРёС†Р°С… РєР°С‚Р°Р»РѕРіР° */
+/* Убираем розовое свечение на страницах каталога */
 .sesh-catalog-page::before {
   display: none !important;
   content: none !important;
@@ -6673,6 +6673,511 @@
   }
 }
 
+@keyframes watch-party-reaction-float {
+  0% {
+    opacity: 0;
+    transform:
+      translate3d(calc(-50% + var(--wp-reaction-x, 0px)), 14px, 0)
+      rotate(var(--wp-reaction-rotation, 0deg))
+      scale(0.6);
+  }
+  12% {
+    opacity: 1;
+    transform:
+      translate3d(calc(-50% + var(--wp-reaction-x, 0px)), 0, 0)
+      rotate(var(--wp-reaction-rotation, 0deg))
+      scale(1);
+  }
+  58% {
+    opacity: 1;
+    transform:
+      translate3d(
+        calc(-50% + var(--wp-reaction-x, 0px) + (var(--wp-reaction-drift, 0px) * 0.55)),
+        calc(var(--wp-reaction-travel, 170px) * -0.56),
+        0
+      )
+      rotate(var(--wp-reaction-end-rotation, 0deg))
+      scale(0.95);
+  }
+  100% {
+    opacity: 0;
+    transform:
+      translate3d(
+        calc(-50% + var(--wp-reaction-x, 0px) + var(--wp-reaction-drift, 0px)),
+        calc(var(--wp-reaction-travel, 170px) * -1),
+        0
+      )
+      rotate(var(--wp-reaction-end-rotation, 0deg))
+      scale(0.92);
+  }
+}
+
+@keyframes watch-party-reaction-fade {
+  0% {
+    opacity: 0;
+    transform:
+      translate3d(calc(-50% + var(--wp-reaction-x, 0px)), 0, 0)
+      rotate(var(--wp-reaction-rotation, 0deg))
+      scale(0.96);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform:
+      translate3d(calc(-50% + var(--wp-reaction-x, 0px)), 0, 0)
+      rotate(var(--wp-reaction-rotation, 0deg))
+      scale(1);
+  }
+}
+
+.watch-party-reaction-pop {
+  position: absolute;
+  bottom: clamp(6.75rem, 18%, 9rem);
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transform:
+    translate3d(calc(-50% + var(--wp-reaction-x, 0px)), 14px, 0)
+    rotate(var(--wp-reaction-rotation, 0deg))
+    scale(0.6);
+  transform-origin: center;
+  will-change: transform, opacity;
+  animation:
+    watch-party-reaction-float
+    var(--wp-reaction-duration, 2200ms)
+    cubic-bezier(0.18, 0.86, 0.22, 1)
+    var(--wp-reaction-delay, 0ms)
+    forwards;
+  contain: layout paint style;
+}
+
+.watch-party-reaction-bubble {
+  display: grid;
+  width: clamp(2.5rem, 5.2vw, 3.75rem);
+  height: clamp(2.5rem, 5.2vw, 3.75rem);
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  color: #fff;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.07));
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.26);
+  font-size: clamp(1.45rem, 3.5vw, 2.35rem);
+  line-height: 1;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(14px) saturate(1.18);
+  -webkit-backdrop-filter: blur(14px) saturate(1.18);
+}
+
+/* =========================================
+   SESH Watch Party — aligned with the main design system
+   ========================================= */
+.sesh-watch-party-page {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  color: #f5f7ff;
+  background:
+    linear-gradient(180deg, rgba(5, 2, 11, 0.44), rgba(5, 2, 11, 0.9) 74%, rgba(5, 2, 11, 0.98)),
+    url('/images/background.jpg') center center / cover fixed no-repeat;
+}
+
+.sesh-watch-party-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  opacity: 0.075;
+  filter: blur(22px) saturate(0.9);
+  transform: scale(1.02);
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent 72%);
+}
+
+.sesh-watch-party-page::before {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  content: '';
+  background:
+    radial-gradient(circle at 8% 8%, rgba(215, 10, 42, 0.14), transparent 29rem),
+    radial-gradient(circle at 92% 18%, rgba(15, 102, 235, 0.12), transparent 32rem),
+    linear-gradient(180deg, rgba(5, 2, 11, 0.14), rgba(5, 2, 11, 0.58));
+}
+
+.sesh-watch-party-shell {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 1680px;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 0 clamp(1rem, 2vw, 2rem) max(2rem, env(safe-area-inset-bottom));
+}
+
+.sesh-watch-party-header {
+  display: flex;
+  min-height: 68px;
+  align-items: center;
+  gap: 1rem;
+  margin-inline: calc(clamp(1rem, 2vw, 2rem) * -1);
+  padding: 0 clamp(1rem, 2vw, 2rem);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.035);
+  background: rgba(9, 0, 22, 0.5);
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(24px) saturate(1.08);
+  -webkit-backdrop-filter: blur(24px) saturate(1.08);
+}
+
+.sesh-watch-party-alerts { margin: 1rem 0; }
+
+/* Watch Party — restrained UI polish */
+.sesh-watch-party-inline-alert {
+  width: fit-content;
+  max-width: min(560px, 100%);
+  border-radius: 12px;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.sesh-watch-party-inline-alert-error {
+  border: 1px solid rgba(248, 113, 113, 0.22);
+  color: rgba(254, 226, 226, 0.9);
+  background: rgba(127, 29, 29, 0.12);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.14);
+}
+
+.sesh-watch-party-danger-button {
+  border-color: rgba(239, 68, 68, 0.28) !important;
+  color: rgba(254, 202, 202, 0.92) !important;
+  background: rgba(127, 29, 29, 0.10) !important;
+}
+.sesh-watch-party-danger-button:hover {
+  border-color: rgba(239, 68, 68, 0.42) !important;
+  background: rgba(127, 29, 29, 0.18) !important;
+}
+
+.sesh-now-watching {
+  transition: border-color 180ms ease, background-color 180ms ease;
+}
+
+.sesh-room-event-stack {
+  position: fixed;
+  top: 82px;
+  right: clamp(1rem, 2vw, 2rem);
+  z-index: 45;
+  display: grid;
+  width: min(360px, calc(100vw - 2rem));
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.sesh-room-event-toast {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 0.75rem 0.9rem;
+  color: #f5f7ff;
+  background:
+    linear-gradient(135deg, rgba(34, 8, 29, 0.74), rgba(6, 11, 32, 0.72)),
+    rgba(7, 4, 16, 0.78);
+  box-shadow:
+    inset 0 0 0 1px rgba(199, 15, 79, 0.04),
+    0 18px 46px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  animation: sesh-room-event-in 220ms ease-out both;
+}
+
+@keyframes sesh-room-event-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.sesh-room-ended-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(5, 2, 11, 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  animation: sesh-room-ended-in 220ms ease-out both;
+}
+
+.sesh-room-ended-panel {
+  display: grid;
+  width: min(440px, 100%);
+  justify-items: center;
+  gap: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 22px;
+  padding: 2rem;
+  text-align: center;
+  background:
+    linear-gradient(135deg, rgba(34, 8, 29, 0.68), rgba(6, 11, 32, 0.66)),
+    rgba(7, 4, 16, 0.82);
+  box-shadow:
+    inset 0 0 0 1px rgba(199, 15, 79, 0.05),
+    0 26px 76px rgba(0, 0, 0, 0.4),
+    0 0 28px rgba(199, 15, 79, 0.06);
+}
+
+.sesh-room-ended-panel h2 { margin: 0; font-size: clamp(1.6rem, 4vw, 2.4rem); font-weight: 750; }
+.sesh-room-ended-panel p { margin: 0; color: rgba(216, 221, 239, 0.68); }
+
+.sesh-watch-party-mini-chat,
+.sesh-watch-party-mini-chat .sesh-mini-chat-panel { z-index: 42 !important; }
+
+.sesh-watch-party-mini-chat-error {
+  position: fixed;
+  right: 1rem;
+  bottom: calc(1rem + env(safe-area-inset-bottom));
+  max-width: min(320px, calc(100vw - 2rem));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 0.65rem 0.9rem;
+  color: rgba(216, 221, 239, 0.82);
+  background: rgba(8, 5, 17, 0.72);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+@media (min-width: 1024px) {
+  /* Mini Chat is a global floating control, not part of the Watch Party grid.
+     Keep both its launcher and opened panel anchored to the viewport edge. */
+  .sesh-watch-party-mini-chat {
+    right: 1.5rem !important;
+    bottom: 1.5rem !important;
+  }
+  .sesh-watch-party-mini-chat .sesh-mini-chat-panel {
+    right: 1.5rem !important;
+    bottom: 1.5rem !important;
+    max-width: min(420px, calc(100vw - 3rem));
+  }
+}
+
+@media (max-width: 1023px) {
+  .sesh-watch-party-mini-chat { right: 1rem !important; bottom: calc(1rem + env(safe-area-inset-bottom)) !important; }
+  .sesh-watch-party-page { background-attachment: scroll; }
+}
+
+@keyframes sesh-room-ended-in { from { opacity: 0; } to { opacity: 1; } }
+
+.sesh-watch-party-theater {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 23vw, 410px);
+  gap: clamp(1rem, 1.4vw, 1.35rem);
+  align-items: start;
+  padding-top: 1.15rem;
+}
+
+.sesh-watch-party-floating-controls {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.9rem auto 0;
+  padding: 0.45rem;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 16px;
+  background: rgba(8, 5, 17, 0.58);
+  box-shadow: 0 14px 40px rgba(0,0,0,0.22);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.sesh-room-panel {
+  position: sticky;
+  top: 82px;
+  display: flex;
+  max-height: calc(100vh - 102px);
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.sesh-room-panel-section,
+.sesh-glass-panel {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(34, 8, 29, 0.58), rgba(6, 11, 32, 0.56)),
+    rgba(7, 4, 16, 0.72);
+  box-shadow:
+    inset 0 0 0 1px rgba(199, 15, 79, 0.045),
+    0 18px 54px rgba(0, 0, 0, 0.28),
+    0 0 26px rgba(199, 15, 79, 0.05),
+    0 0 28px rgba(15, 102, 235, 0.04);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.sesh-room-chat {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 min(360px, 42vh);
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sesh-room-chat-collapsed {
+  flex: 0 0 auto;
+}
+
+.sesh-room-chat-collapsed .sesh-room-panel-heading {
+  border-bottom-color: transparent;
+}
+
+.sesh-room-panel-heading {
+  min-height: 58px;
+}
+
+.sesh-room-side-section {
+  flex: 0 0 auto;
+}
+
+.sesh-watch-video {
+  border-radius: 22px;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  box-shadow:
+    0 28px 84px rgba(0, 0, 0, 0.48),
+    0 0 28px rgba(199, 15, 79, 0.06),
+    0 0 30px rgba(15, 102, 235, 0.04);
+}
+
+.sesh-premium-button {
+  color: rgba(245, 247, 255, 0.9) !important;
+  border: 1px solid rgba(160, 38, 61, 0.3) !important;
+  border-radius: 12px !important;
+  background: rgba(8, 5, 17, 0.58) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(20, 125, 202, 0.07),
+    0 8px 20px rgba(0, 0, 0, 0.18) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.sesh-premium-button:hover {
+  color: #fff !important;
+  transform: translateY(-1px);
+  border-color: rgba(213, 32, 58, 0.48) !important;
+  background: rgba(26, 8, 22, 0.78) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(20, 125, 202, 0.1),
+    0 0 16px rgba(213, 32, 58, 0.14),
+    0 8px 22px rgba(0, 0, 0, 0.24) !important;
+}
+
+.sesh-chat-scroll,
+.sesh-mini-chat-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(213, 32, 58, 0.34) rgba(5, 0, 10, 0.26);
+}
+.sesh-chat-scroll::-webkit-scrollbar,
+.sesh-mini-chat-scroll::-webkit-scrollbar { width: 7px; }
+.sesh-chat-scroll::-webkit-scrollbar-track,
+.sesh-mini-chat-scroll::-webkit-scrollbar-track { background: rgba(5, 0, 10, 0.2); }
+.sesh-chat-scroll::-webkit-scrollbar-thumb,
+.sesh-mini-chat-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(207,29,49,0.46), rgba(126,23,74,0.48), rgba(14,111,183,0.42));
+}
+
+.sesh-message-in { animation: sesh-message-arrive 220ms cubic-bezier(0.2, 0.82, 0.22, 1) both; }
+
+.sesh-vote-card {
+  position: relative;
+  overflow: hidden;
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+.sesh-vote-card::after {
+  position: absolute;
+  inset: auto 18px 0;
+  height: 1px;
+  content: '';
+  background: linear-gradient(90deg, transparent, rgba(213,32,58,0.72), rgba(67,37,157,0.62), rgba(14,111,183,0.6), transparent);
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+.sesh-vote-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(213, 32, 58, 0.3) !important;
+  box-shadow: 0 16px 42px rgba(0,0,0,0.24), 0 0 22px rgba(213,32,58,0.06);
+}
+.sesh-vote-card:hover::after,
+.sesh-vote-card-selected::after { opacity: 1; }
+
+.sesh-reaction-button {
+  border-radius: 12px !important;
+  transition: transform 160ms ease, filter 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+.sesh-reaction-button:hover {
+  transform: translateY(-2px) scale(1.06);
+  filter: saturate(1.15);
+  background: rgba(145, 24, 49, 0.16) !important;
+  box-shadow: inset 0 0 0 1px rgba(213,32,58,0.14), 0 10px 24px rgba(0,0,0,0.2) !important;
+}
+
+.sesh-mini-chat-panel { animation: sesh-panel-rise 220ms cubic-bezier(0.2, 0.82, 0.22, 1) both; }
+
+@keyframes sesh-message-arrive {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes sesh-panel-rise {
+  from { opacity: 0; transform: translateY(12px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 1023px) {
+  .sesh-watch-party-shell { padding-inline: 1rem; }
+  .sesh-watch-party-header { flex-wrap: wrap; align-content: center; gap: 0.75rem; padding-block: 0.75rem; }
+  .sesh-watch-party-theater { grid-template-columns: minmax(0, 1fr); }
+  .sesh-room-panel { position: static; max-height: none; }
+  .sesh-room-chat:not(.sesh-room-chat-collapsed) { min-height: min(430px, 58vh); }
+}
+
+@media (max-width: 640px) {
+  .watch-party-reaction-pop { bottom: clamp(6rem, 16%, 7.5rem); --wp-reaction-travel: min(var(--wp-reaction-travel, 170px), 132px); }
+  .watch-party-reaction-bubble { width: 2.45rem; height: 2.45rem; font-size: 1.45rem; }
+  .sesh-watch-party-header > .flex.shrink-0 { width: 100%; flex-wrap: wrap; }
+  .sesh-watch-party-floating-controls { width: 100%; justify-content: center; border-radius: 16px; }
+  .sesh-room-chat:not(.sesh-room-chat-collapsed) { min-height: min(380px, 58vh); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .watch-party-reaction-pop {
+    animation:
+      watch-party-reaction-fade
+      180ms
+      ease-out
+      var(--wp-reaction-delay, 0ms)
+      forwards;
+  }
+
+  .sesh-message-in,
+  .sesh-mini-chat-panel {
+    animation: none;
+  }
+}
+
 /* Clean mobile drawer/backdrop override */
 @media (max-width: 767px) {
   .sesh-mobile-sidebar-backdrop {
@@ -6710,4 +7215,92 @@
       linear-gradient(90deg, rgba(255, 255, 255, 0.045), transparent 26%),
       linear-gradient(180deg, transparent 58%, rgba(215, 10, 42, 0.08)) !important;
   }
+}
+
+
+/* Watch Party visual refinement — 2026-08-11 */
+.sesh-watch-party-header {
+  background: rgba(8, 6, 20, 0.78);
+  border-bottom-color: rgba(255, 255, 255, 0.055);
+}
+
+.sesh-watch-party-theater {
+  gap: clamp(1rem, 1.6vw, 1.6rem);
+}
+
+.sesh-room-panel-section,
+.sesh-glass-panel {
+  background: rgba(12, 10, 27, 0.78);
+  border-color: rgba(151, 132, 210, 0.13);
+  box-shadow: 0 20px 54px rgba(0, 0, 0, 0.28);
+}
+
+.sesh-room-chat {
+  background: rgba(12, 10, 27, 0.80);
+}
+
+.sesh-watch-party-chat-bubble-mine {
+  border: 1px solid rgba(139, 112, 226, 0.30);
+  background: linear-gradient(135deg, rgba(76, 56, 142, 0.76), rgba(64, 47, 118, 0.70));
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.22);
+}
+
+.sesh-watch-party-chat-bubble-other {
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.055);
+  box-shadow: 0 8px 22px rgba(0,0,0,0.16);
+}
+
+.sesh-mini-chat-bubble-mine {
+  border: 1px solid rgba(139, 112, 226, 0.30);
+  background: #553b9d;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+}
+
+.sesh-mini-chat-bubble-other {
+  border: 1px solid rgba(255,255,255,0.09);
+  background: rgba(255,255,255,0.06);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.16);
+}
+
+.sesh-watch-party-participant {
+  border: 1px solid rgba(255,255,255,0.07);
+  background: rgba(255,255,255,0.035);
+}
+.sesh-watch-party-participant:hover {
+  border-color: rgba(139,112,226,0.24);
+  background: rgba(139,112,226,0.055);
+}
+
+.sesh-now-watching {
+  border: 1px solid rgba(151, 132, 210, 0.13);
+  background: rgba(11, 9, 25, 0.82);
+  box-shadow: 0 14px 42px rgba(0,0,0,0.22);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.sesh-watch-party-floating-controls {
+  border-color: rgba(151,132,210,0.13);
+  background: rgba(10,8,22,0.74);
+}
+
+.sesh-watch-party-sync-button {
+  border-color: rgba(105, 191, 255, 0.18) !important;
+  color: rgba(220, 238, 255, 0.9) !important;
+}
+
+.sesh-watch-party-leave-button {
+  border-color: rgba(255, 255, 255, 0.13) !important;
+  color: rgba(235, 238, 248, 0.82) !important;
+  background: rgba(255, 255, 255, 0.045) !important;
+}
+
+.sesh-poll-empty {
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.025);
+}
+
+.sesh-watch-video {
+  border-radius: 20px;
+  box-shadow: 0 26px 74px rgba(0,0,0,0.44);
 }

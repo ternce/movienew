@@ -28,7 +28,6 @@ export function getBrowserName(page: Page): string {
  * Extended test fixture with browser helpers and API mocking
  */
 interface BrowserFixtures {
-  isMobile: boolean;
   isWebKit: boolean;
   isFirefox: boolean;
   isChromium: boolean;
@@ -80,10 +79,6 @@ const MOCK_USER = {
  * Create extended test with browser detection fixtures
  */
 export const test = base.extend<BrowserFixtures>({
-  isMobile: async ({ page }, use) => {
-    await use(isMobile(page));
-  },
-
   isWebKit: async ({ page }, use) => {
     await use(isWebKit(page));
   },

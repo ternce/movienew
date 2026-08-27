@@ -47,6 +47,7 @@ export interface ButtonProps
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
   isLoading?: boolean;
+  loadingText?: string;
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
 }
@@ -59,6 +60,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       size,
       asChild = false,
       isLoading = false,
+      loadingText = 'Загрузка...',
       leftIcon,
       rightIcon,
       children,
@@ -79,7 +81,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         {isLoading ? (
           <>
             <SpinnerGap className="animate-spin" />
-            <span>Loading...</span>
+            <span>{loadingText}</span>
           </>
         ) : asChild ? (
           <Slottable>{children}</Slottable>
