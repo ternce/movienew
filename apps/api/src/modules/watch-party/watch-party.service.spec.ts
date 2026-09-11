@@ -43,6 +43,7 @@ function createMockPrisma() {
       findUnique: jest.fn(),
       findUniqueOrThrow: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
     watchPartyParticipant: {
       findUnique: jest.fn(),
@@ -319,21 +320,27 @@ describe('WatchPartyService', () => {
 
   it('creates a room with the current user as host', async () => {
     const room = buildRoom();
-    prisma.content.findUnique
-      .mockResolvedValueOnce({ id: 'content-1' })
-      .mockResolvedValueOnce({ id: 'content-1', status: ContentStatus.PUBLISHED });
+    prisma.content.findMany.mockResolvedValue([
+      buildPollContent({ id: 'content-1', contentType: 'CLIP' }),
+    ]);
     prisma.watchPartyRoom.findUnique.mockResolvedValue(null);
     prisma.watchPartyRoom.create.mockResolvedValue(room);
 
     const result = await service.createRoom('host-1', { contentId: 'content-1' });
 
-    expect(prisma.content.findUnique).toHaveBeenCalledWith({
-      where: { id: 'content-1' },
-      select: { id: true },
-    });
-    expect(prisma.content.findUnique).toHaveBeenCalledWith({
-      where: { id: 'content-1' },
-      select: { id: true, status: true },
+    expect(prisma.content.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ['content-1'] } },
+      select: {
+        id: true,
+        status: true,
+        contentType: true,
+        series: {
+          select: {
+            id: true,
+            parentSeriesId: true,
+          },
+        },
+      },
     });
     expect(prisma.watchPartyRoom.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -353,6 +360,120 @@ describe('WatchPartyService', () => {
     );
     expect(result.hostUserId).toBe('host-1');
     expect(result.invitationUrl).toContain('/watch-party/join/');
+  });
+
+  it('creates a room for a structured root with a valid published child', async () => {
+    const room = buildRoom({
+      contentId: 'series-root-content',
+      episodeId: 'episode-1',
+      content: { id: 'series-root-content', title: 'Series', contentType: 'SERIES' },
+      episode: { id: 'episode-1', title: 'Episode 1', contentType: 'SERIES' },
+    });
+    prisma.content.findMany.mockResolvedValue([
+      buildRootSeriesContent(),
+      buildChildSeriesContent(),
+    ]);
+    prisma.watchPartyRoom.findUnique.mockResolvedValue(null);
+    prisma.watchPartyRoom.create.mockResolvedValue(room);
+
+    const result = await service.createRoom('host-1', {
+      contentId: 'series-root-content',
+      episodeId: 'episode-1',
+    });
+
+    expect(prisma.watchPartyRoom.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          contentId: 'series-root-content',
+          episodeId: 'episode-1',
+        }),
+      }),
+    );
+    expect(result.episodeId).toBe('episode-1');
+  });
+
+  it('rejects creating a room for a structured root without a playable child', async () => {
+    prisma.content.findMany.mockResolvedValue([buildRootSeriesContent()]);
+
+    await expect(
+      service.createRoom('host-1', { contentId: 'series-root-content' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.watchPartyRoom.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects creating a room when the structured child is unpublished', async () => {
+    prisma.content.findMany.mockResolvedValue([
+      buildRootSeriesContent(),
+      buildChildSeriesContent({ status: ContentStatus.DRAFT }),
+    ]);
+
+    await expect(
+      service.createRoom('host-1', {
+        contentId: 'series-root-content',
+        episodeId: 'episode-1',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.watchPartyRoom.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects creating a room when the child belongs to a different structured root', async () => {
+    prisma.content.findMany.mockResolvedValue([
+      buildRootSeriesContent(),
+      buildChildSeriesContent({
+        id: 'episode-from-series-b',
+        series: { id: 'series-b-episode', parentSeriesId: 'series-b-root' },
+      }),
+    ]);
+
+    await expect(
+      service.createRoom('host-1', {
+        contentId: 'series-root-content',
+        episodeId: 'episode-from-series-b',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.watchPartyRoom.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects creating a room when the supplied child is missing', async () => {
+    prisma.content.findMany.mockResolvedValue([buildRootSeriesContent()]);
+
+    await expect(
+      service.createRoom('host-1', {
+        contentId: 'series-root-content',
+        episodeId: 'missing-episode',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.watchPartyRoom.create).not.toHaveBeenCalled();
+  });
+
+  it('creates a room for a tutorial root with a valid published lesson', async () => {
+    prisma.content.findMany.mockResolvedValue([
+      buildRootTutorialContent(),
+      buildChildTutorialContent(),
+    ]);
+    prisma.watchPartyRoom.findUnique.mockResolvedValue(null);
+    prisma.watchPartyRoom.create.mockResolvedValue(
+      buildRoom({
+        contentId: 'tutorial-root-content',
+        episodeId: 'lesson-1',
+      }),
+    );
+
+    await expect(
+      service.createRoom('host-1', {
+        contentId: 'tutorial-root-content',
+        episodeId: 'lesson-1',
+      }),
+    ).resolves.toEqual(expect.objectContaining({ episodeId: 'lesson-1' }));
+  });
+
+  it('rejects creating a room for a tutorial root without a lesson', async () => {
+    prisma.content.findMany.mockResolvedValue([buildRootTutorialContent()]);
+
+    await expect(
+      service.createRoom('host-1', { contentId: 'tutorial-root-content' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.watchPartyRoom.create).not.toHaveBeenCalled();
   });
 
   it('joins a room by invite token', async () => {
@@ -497,7 +618,7 @@ describe('WatchPartyService', () => {
   });
 
   it('returns not found when creating a room for missing content', async () => {
-    prisma.content.findUnique.mockResolvedValue(null);
+    prisma.content.findMany.mockResolvedValue([]);
 
     await expect(
       service.createRoom('host-1', { contentId: 'missing-content' }),
@@ -506,9 +627,9 @@ describe('WatchPartyService', () => {
   });
 
   it('rejects unavailable content when creating a room', async () => {
-    prisma.content.findUnique
-      .mockResolvedValueOnce({ id: 'content-1' })
-      .mockResolvedValueOnce({ id: 'content-1', status: ContentStatus.DRAFT });
+    prisma.content.findMany.mockResolvedValue([
+      buildPollContent({ id: 'content-1', status: ContentStatus.DRAFT }),
+    ]);
 
     await expect(
       service.createRoom('host-1', { contentId: 'content-1' }),
@@ -518,7 +639,8 @@ describe('WatchPartyService', () => {
 
   it('allows the host to publish a play state and increments sequence', async () => {
     prisma.watchPartyRoom.findUnique.mockResolvedValue(buildRoom());
-    prisma.watchPartyRoom.update.mockResolvedValue(
+    prisma.watchPartyRoom.updateMany.mockResolvedValue({ count: 1 });
+    prisma.watchPartyRoom.findUniqueOrThrow.mockResolvedValue(
       buildRoom({
         playbackStatus: WatchPartyPlaybackStatus.PLAYING,
         currentTime: 42,
@@ -533,9 +655,9 @@ describe('WatchPartyService', () => {
       sequence: 0,
     });
 
-    expect(prisma.watchPartyRoom.update).toHaveBeenCalledWith(
+    expect(prisma.watchPartyRoom.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'room-1' },
+        where: { id: 'room-1', sequence: 0 },
         data: expect.objectContaining({
           currentTime: 42,
           playbackStatus: WatchPartyPlaybackStatus.PLAYING,
@@ -574,7 +696,7 @@ describe('WatchPartyService', () => {
         sequence: 0,
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(prisma.watchPartyRoom.update).not.toHaveBeenCalled();
+    expect(prisma.watchPartyRoom.updateMany).not.toHaveBeenCalled();
   });
 
   it('rejects stale playback events', async () => {
@@ -592,7 +714,7 @@ describe('WatchPartyService', () => {
         sequence: 2,
       }),
     ).rejects.toBeInstanceOf(ConflictException);
-    expect(prisma.watchPartyRoom.update).not.toHaveBeenCalled();
+    expect(prisma.watchPartyRoom.updateMany).not.toHaveBeenCalled();
   });
 
   it('rejects playback events without an authoritative sequence', async () => {
@@ -605,7 +727,57 @@ describe('WatchPartyService', () => {
         currentTime: 20,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(prisma.watchPartyRoom.update).not.toHaveBeenCalled();
+    expect(prisma.watchPartyRoom.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects a sequence that loses the atomic compare-and-swap', async () => {
+    prisma.watchPartyRoom.findUnique.mockResolvedValue(buildRoom());
+    prisma.watchPartyRoom.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(
+      service.updatePlaybackState('host-1', {
+        roomId: 'room-1',
+        action: 'PAUSE',
+        currentTime: 10,
+        sequence: 0,
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.watchPartyRoom.findUniqueOrThrow).not.toHaveBeenCalled();
+  });
+
+  it('accepts exactly one concurrent playback command for the same expected sequence', async () => {
+    prisma.watchPartyRoom.findUnique.mockResolvedValue(buildRoom());
+    prisma.watchPartyRoom.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 });
+    prisma.watchPartyRoom.findUniqueOrThrow.mockResolvedValue(
+      buildRoom({
+        playbackStatus: WatchPartyPlaybackStatus.PAUSED,
+        currentTime: 11,
+        sequence: 1,
+      }),
+    );
+
+    const results = await Promise.allSettled([
+      service.updatePlaybackState('host-1', {
+        roomId: 'room-1',
+        action: 'PAUSE',
+        currentTime: 11,
+        sequence: 0,
+      }),
+      service.updatePlaybackState('host-1', {
+        roomId: 'room-1',
+        action: 'SEEK',
+        currentTime: 44,
+        sequence: 0,
+      }),
+    ]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    expect(prisma.watchPartyRoom.updateMany).toHaveBeenCalledTimes(2);
+    expect(prisma.watchPartyRoom.findUniqueOrThrow).toHaveBeenCalledTimes(1);
+    expect((results.find((result) => result.status === 'fulfilled') as PromiseFulfilledResult<any>).value.sequence).toBe(1);
   });
 
   it('returns effective current time while playing', async () => {
@@ -736,7 +908,8 @@ describe('WatchPartyService', () => {
     prisma.watchPartyRoom.findUnique.mockResolvedValue(
       buildRoomWithGuest({ hostUserId: 'user-2' }),
     );
-    prisma.watchPartyRoom.update.mockResolvedValue(
+    prisma.watchPartyRoom.updateMany.mockResolvedValue({ count: 1 });
+    prisma.watchPartyRoom.findUniqueOrThrow.mockResolvedValue(
       buildRoomWithGuest({
         hostUserId: 'user-2',
         playbackStatus: WatchPartyPlaybackStatus.PAUSED,
@@ -887,6 +1060,72 @@ describe('WatchPartyService', () => {
       }),
     );
     expect(result.options).toHaveLength(2);
+  });
+
+  it('allows a new active poll after historical polls are closed', async () => {
+    prisma.watchPartyRoom.findUnique.mockResolvedValue(buildRoom());
+    prisma.watchPartyPoll.findFirst.mockResolvedValue(null);
+    prisma.content.findMany.mockResolvedValue([
+      buildPollContent({ id: 'content-2' }),
+      buildPollContent({ id: 'content-3' }),
+    ]);
+    prisma.watchPartyPoll.create.mockResolvedValue(buildPoll());
+
+    await expect(
+      service.createPoll('host-1', {
+        roomId: 'room-1',
+        options: [{ contentId: 'content-2' }, { contentId: 'content-3' }],
+      }),
+    ).resolves.toEqual(expect.objectContaining({ id: 'poll-1' }));
+
+    expect(prisma.watchPartyPoll.findFirst).toHaveBeenCalledWith({
+      where: { roomId: 'room-1', status: WatchPartyPollStatus.ACTIVE },
+      select: { id: true },
+    });
+  });
+
+  it('returns a controlled conflict when the active poll unique index rejects a race', async () => {
+    prisma.watchPartyRoom.findUnique.mockResolvedValue(buildRoom());
+    prisma.watchPartyPoll.findFirst.mockResolvedValue(null);
+    prisma.content.findMany.mockResolvedValue([
+      buildPollContent({ id: 'content-2' }),
+      buildPollContent({ id: 'content-3' }),
+    ]);
+    prisma.watchPartyPoll.create.mockRejectedValue({ code: 'P2002' });
+
+    await expect(
+      service.createPoll('host-1', {
+        roomId: 'room-1',
+        options: [{ contentId: 'content-2' }, { contentId: 'content-3' }],
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('allows exactly one concurrent active poll create to win', async () => {
+    prisma.watchPartyRoom.findUnique.mockResolvedValue(buildRoom());
+    prisma.watchPartyPoll.findFirst.mockResolvedValue(null);
+    prisma.content.findMany.mockResolvedValue([
+      buildPollContent({ id: 'content-2' }),
+      buildPollContent({ id: 'content-3' }),
+    ]);
+    prisma.watchPartyPoll.create
+      .mockResolvedValueOnce(buildPoll())
+      .mockRejectedValueOnce({ code: 'P2002' });
+
+    const results = await Promise.allSettled([
+      service.createPoll('host-1', {
+        roomId: 'room-1',
+        options: [{ contentId: 'content-2' }, { contentId: 'content-3' }],
+      }),
+      service.createPoll('host-1', {
+        roomId: 'room-1',
+        options: [{ contentId: 'content-2' }, { contentId: 'content-3' }],
+      }),
+    ]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    expect(prisma.watchPartyPoll.create).toHaveBeenCalledTimes(2);
   });
 
   it('allows a standalone movie poll option without an episode', async () => {

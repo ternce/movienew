@@ -17,6 +17,7 @@ const storeActions = vi.hoisted(() => ({
   setBuffering: vi.fn(),
   setEnded: vi.fn(),
   setError: vi.fn(),
+  setAutoplayBlocked: vi.fn(),
   setVolume: vi.fn(),
   setMuted: vi.fn(),
   setQuality: vi.fn(),
@@ -53,6 +54,7 @@ type VideoState = {
   ended: boolean;
   readyState: number;
   playbackRate?: number;
+  error?: MediaError | null;
 };
 
 function installVideoState(
@@ -78,6 +80,10 @@ function installVideoState(
   Object.defineProperty(video, "ended", {
     configurable: true,
     get: () => state.ended,
+  });
+  Object.defineProperty(video, "error", {
+    configurable: true,
+    get: () => state.error ?? null,
   });
   Object.defineProperty(video, "readyState", {
     configurable: true,
@@ -130,14 +136,17 @@ function command(
 function Harness({
   remoteCommand,
   onPlaybackAction,
+  onError,
 }: {
   remoteCommand?: PlaybackRemoteCommand | null;
   onPlaybackAction?: (action: PlaybackLocalAction) => void;
+  onError?: (message: string) => void;
 }) {
   const { videoRef, togglePlayPause, seek } = usePlayer({
     src: "test.m3u8",
     remoteCommand,
     onPlaybackAction,
+    onError,
   });
 
   return (
@@ -473,5 +482,96 @@ describe("usePlayer Watch Party remote sync", () => {
 
     expect(state.currentTime).toBe(55);
     expect(state.paused).toBe(true);
+  });
+
+  it("does not treat remote autoplay rejection as a fatal media error", async () => {
+    const onError = vi.fn();
+    const blocked = new DOMException("gesture required", "NotAllowedError");
+    const { rerender } = render(<Harness remoteCommand={null} onError={onError} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 0,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 1,
+    };
+    installVideoState(video, state, () => Promise.reject(blocked));
+    vi.clearAllMocks();
+
+    rerender(<Harness remoteCommand={command(20, "PLAYING", 5, "play")} onError={onError} />);
+    await act(async () => {});
+
+    expect(storeActions.setAutoplayBlocked).toHaveBeenCalledWith("Tap to synchronize playback");
+    expect(storeActions.setError).not.toHaveBeenCalledWith("Tap to synchronize playback");
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("clears stale recoverable and fatal player state after successful media lifecycle events", () => {
+    render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 0,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 1,
+    };
+    installVideoState(video, state);
+    vi.clearAllMocks();
+
+    act(() => {
+      video.dispatchEvent(new Event("loadedmetadata"));
+      video.dispatchEvent(new Event("canplay"));
+      video.dispatchEvent(new Event("playing"));
+    });
+
+    expect(storeActions.setError).toHaveBeenCalledWith(null);
+    expect(storeActions.setAutoplayBlocked).toHaveBeenCalledWith(null);
+    expect(storeActions.setBuffering).toHaveBeenCalledWith(false);
+  });
+
+  it("treats buffering as buffering, not a fatal playback error", () => {
+    render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 0,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 1,
+    };
+    installVideoState(video, state);
+    vi.clearAllMocks();
+
+    act(() => {
+      video.dispatchEvent(new Event("waiting"));
+    });
+
+    expect(storeActions.setBuffering).toHaveBeenCalledWith(true);
+    expect(storeActions.setError).not.toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it("still reports genuine media element errors as fatal playback errors", () => {
+    const onError = vi.fn();
+    render(<Harness remoteCommand={null} onError={onError} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 0,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 1,
+      error: { message: "decode failed" } as MediaError,
+    };
+    installVideoState(video, state);
+    vi.clearAllMocks();
+
+    act(() => {
+      video.dispatchEvent(new Event("error"));
+    });
+
+    expect(storeActions.setError).toHaveBeenCalledWith("decode failed");
+    expect(onError).toHaveBeenCalledWith("decode failed");
   });
 });

@@ -175,6 +175,7 @@ export function usePlayer({
     setBuffering,
     setEnded,
     setError,
+    setAutoplayBlocked,
     setVolume,
     setMuted,
     setQuality,
@@ -298,10 +299,7 @@ export function usePlayer({
                   ? error.name
                   : "";
             if (name === "NotAllowedError") {
-              const message =
-                "Tap to synchronize playback";
-              setError(message);
-              onErrorRef.current?.(message);
+              setAutoplayBlocked("Tap to synchronize playback");
             }
           });
           if (version !== remoteCommandVersionRef.current) {
@@ -331,7 +329,14 @@ export function usePlayer({
         }, 250);
       }
     },
-    [applySoftCorrection, clearSoftCorrection, setCurrentTime, setEnded, setError],
+    [
+      applySoftCorrection,
+      clearSoftCorrection,
+      setAutoplayBlocked,
+      setCurrentTime,
+      setEnded,
+      setError,
+    ],
   );
 
   // Initialize HLS.js
@@ -341,6 +346,8 @@ export function usePlayer({
 
     endedCallbackFiredRef.current = false;
     sourceTransitionRef.current = true;
+    setError(null);
+    setAutoplayBlocked(null);
     if (sourceTransitionReleaseRef.current) {
       clearTimeout(sourceTransitionReleaseRef.current);
       sourceTransitionReleaseRef.current = null;
@@ -519,6 +526,8 @@ export function usePlayer({
     };
     const handleLoadedMetadata = () => {
       setDuration(video.duration);
+      setError(null);
+      setAutoplayBlocked(null);
       const pendingCommand = pendingRemoteCommandRef.current;
       if (pendingCommand) {
         const version = remoteCommandVersionRef.current;
@@ -531,7 +540,16 @@ export function usePlayer({
       }
     };
     const handleWaiting = () => setBuffering(true);
-    const handleCanPlay = () => setBuffering(false);
+    const handleCanPlay = () => {
+      setBuffering(false);
+      setError(null);
+      setAutoplayBlocked(null);
+    };
+    const handlePlaying = () => {
+      setBuffering(false);
+      setError(null);
+      setAutoplayBlocked(null);
+    };
     const handleVolumeChange = () => {
       setVolume(video.volume);
       setMuted(video.muted);
@@ -552,6 +570,7 @@ export function usePlayer({
     video.addEventListener("progress", handleProgress);
     video.addEventListener("waiting", handleWaiting);
     video.addEventListener("canplay", handleCanPlay);
+    video.addEventListener("playing", handlePlaying);
     video.addEventListener("volumechange", handleVolumeChange);
     video.addEventListener("error", handleError);
 
@@ -565,6 +584,7 @@ export function usePlayer({
       video.removeEventListener("progress", handleProgress);
       video.removeEventListener("waiting", handleWaiting);
       video.removeEventListener("canplay", handleCanPlay);
+      video.removeEventListener("playing", handlePlaying);
       video.removeEventListener("volumechange", handleVolumeChange);
       video.removeEventListener("error", handleError);
     };
@@ -579,6 +599,7 @@ export function usePlayer({
     setVolume,
     setMuted,
     setError,
+    setAutoplayBlocked,
     onEnded,
     onError,
     onProgress,

@@ -18,10 +18,19 @@ interface PlayerOverlayProps {
  * Shows based on player state (paused, ended, buffering, error)
  */
 export function PlayerOverlay({ onPlayPause, onReplay, className }: PlayerOverlayProps) {
-  const { isPlaying, isPaused, isBuffering, isEnded, error, isControlsVisible } = usePlayerStore();
+  const {
+    isPlaying,
+    isPaused,
+    isBuffering,
+    isEnded,
+    error,
+    autoplayBlockedMessage,
+    isControlsVisible,
+  } = usePlayerStore();
 
   // Determine what to show
-  const showPlayButton = isPaused && !isBuffering && !isEnded && !error;
+  const showAutoplayBlocked = !!autoplayBlockedMessage && !error;
+  const showPlayButton = isPaused && !isBuffering && !isEnded && !error && !showAutoplayBlocked;
   const showPauseIndicator = isPlaying && isControlsVisible;
   const showBuffering = isBuffering;
   const showEnded = isEnded && !error;
@@ -90,8 +99,26 @@ export function PlayerOverlay({ onPlayPause, onReplay, className }: PlayerOverla
         </div>
       )}
 
+      {/* Recoverable browser autoplay block */}
+      {showAutoplayBlocked && !showBuffering && (
+        <div className="pointer-events-auto flex max-w-sm flex-col items-center gap-4 px-4 text-center">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPlayPause();
+            }}
+            className="group flex h-20 w-20 items-center justify-center rounded-full bg-mp-accent-primary/90 shadow-glow-primary backdrop-blur-sm transition-transform hover:scale-110 focus:outline-none focus-visible:ring-4 focus-visible:ring-mp-accent-primary/50"
+            aria-label="Tap to synchronize playback"
+          >
+            <Play className="ml-1 h-10 w-10 text-white" weight="fill" />
+          </button>
+          <p className="text-sm font-medium text-white/82">{autoplayBlockedMessage}</p>
+        </div>
+      )}
+
       {/* Error state */}
-      {showError && (
+      {showError && !showAutoplayBlocked && (
         <div className="pointer-events-auto flex flex-col items-center gap-4 max-w-sm text-center px-4">
           <div className="w-16 h-16 rounded-full bg-mp-error-bg flex items-center justify-center">
             <WarningCircle className="w-8 h-8 text-mp-error-text" />

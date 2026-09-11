@@ -32,6 +32,12 @@ const mocks = vi.hoisted(() => ({
   streamLoading: false,
   streamError: null as Error | null,
   streamRefetch: vi.fn(),
+  toastMessage: vi.fn(),
+  toastInfo: vi.fn(),
+  toastWarning: vi.fn(),
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  toastLoading: vi.fn(),
   socketDisconnect: vi.fn(),
   socketOptions: null as null | {
     onPlaybackState?: (
@@ -45,6 +51,11 @@ const mocks = vi.hoisted(() => ({
       sender: Record<string, unknown>;
       timestamp: string;
     }) => void;
+    onParticipantJoined?: (participant: Record<string, unknown>) => void;
+    onConnectionChanged?: (
+      state: "connected" | "disconnected" | "error",
+      message?: string,
+    ) => void;
   },
   sendReactionAck: vi.fn(),
   leaveAck: vi.fn(),
@@ -174,6 +185,17 @@ vi.mock("next/dynamic", () => ({
   },
 }));
 
+vi.mock("sonner", () => ({
+  toast: {
+    message: mocks.toastMessage,
+    info: mocks.toastInfo,
+    warning: mocks.toastWarning,
+    error: mocks.toastError,
+    success: mocks.toastSuccess,
+    loading: mocks.toastLoading,
+  },
+}));
+
 vi.mock("@/components/player", () => ({
   VideoPlayerSkeleton: () => <div data-testid="video-player-skeleton" />,
 }));
@@ -243,6 +265,11 @@ vi.mock("@/hooks/use-watch-party-socket", async () => {
         sender: Record<string, unknown>;
         timestamp: string;
       }) => void;
+      onParticipantJoined?: (participant: Record<string, unknown>) => void;
+      onConnectionChanged?: (
+        state: "connected" | "disconnected" | "error",
+        message?: string,
+      ) => void;
     }) => {
       mocks.socketOptions = options;
       if (mocks.socketError) {
@@ -332,6 +359,13 @@ describe("WatchPartyJoinPage runtime safety", () => {
     mocks.streamLoading = false;
     mocks.streamError = null;
     mocks.streamRefetch.mockResolvedValue({ data: { data: mocks.streamData } });
+    mocks.toastMessage.mockReset();
+    mocks.toastInfo.mockReset();
+    mocks.toastWarning.mockReset();
+    mocks.toastError.mockReset();
+    mocks.toastSuccess.mockReset();
+    mocks.toastLoading.mockReset();
+    mocks.toastLoading.mockReturnValue("toast-loading-id");
     mocks.socketDisconnect.mockReset();
     mocks.socketOptions = null;
     mocks.sendReactionAck.mockReset();
@@ -455,12 +489,66 @@ describe("WatchPartyJoinPage runtime safety", () => {
     expect(screen.getByTestId("watch-party-video-player")).toBeInTheDocument();
   });
 
+  it("uses one canonical toast surface for participant joined events", async () => {
+    const view = renderJoinPage();
+
+    expect(await screen.findByTestId("watch-party-video-player")).toBeInTheDocument();
+
+    act(() => {
+      mocks.socketOptions?.onParticipantJoined?.({
+        userId: "user-guest",
+        displayName: "Ivan Petrov",
+        role: "PARTICIPANT",
+        connectionStatus: "ONLINE",
+      });
+    });
+
+    expect(mocks.toastMessage).toHaveBeenCalledTimes(1);
+    expect(view.container.querySelector(".sesh-room-event-stack")).not.toBeInTheDocument();
+    expect(view.container.querySelectorAll(".sesh-room-event-toast")).toHaveLength(0);
+  });
+
+  it("uses one canonical toast surface for connection restored events", async () => {
+    const view = renderJoinPage();
+
+    expect(await screen.findByTestId("watch-party-video-player")).toBeInTheDocument();
+
+    act(() => {
+      mocks.socketOptions?.onConnectionChanged?.("connected");
+    });
+
+    expect(mocks.toastMessage).toHaveBeenCalledTimes(1);
+    expect(view.container.querySelector(".sesh-room-event-stack")).not.toBeInTheDocument();
+  });
+
+  it("keeps mobile reactions outside the video while preserving the desktop picker", async () => {
+    const view = renderJoinPage();
+
+    expect(await screen.findByTestId("watch-party-video-player")).toBeInTheDocument();
+
+    const bars = view.container.querySelectorAll(".sesh-watch-party-reaction-bar");
+    expect(bars).toHaveLength(2);
+    expect(bars[0]).toHaveClass("absolute", "hidden", "md:flex");
+    expect(bars[1]).toHaveClass("md:hidden");
+    expect(bars[1].querySelectorAll("button")).toHaveLength(5);
+  });
+
+  it("keeps Leave canonical in the post-player action block", async () => {
+    const view = renderJoinPage();
+
+    expect(await screen.findByTestId("watch-party-video-player")).toBeInTheDocument();
+
+    const header = view.container.querySelector(".sesh-watch-party-header");
+    expect(header?.querySelector('button[aria-hidden="true"]')).not.toBeInTheDocument();
+    expect(view.container.querySelector(".sesh-watch-party-leave-button")).toBeInTheDocument();
+  });
+
   it("shows a reaction immediately for the sender and emits a dedupe id", async () => {
     const user = userEvent.setup();
     renderJoinPage();
 
     expect(await screen.findByTestId("watch-party-video-player")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /❤️/ }));
+    await user.click(screen.getAllByRole("button", { name: /❤️/ })[1]);
 
     expect(document.querySelectorAll(".watch-party-reaction-pop")).toHaveLength(1);
     expect(mocks.sendReactionAck).toHaveBeenCalledWith(
@@ -477,7 +565,7 @@ describe("WatchPartyJoinPage runtime safety", () => {
     renderJoinPage();
 
     expect(await screen.findByTestId("watch-party-video-player")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /🔥/ }));
+    await user.click(screen.getAllByRole("button", { name: /🔥/ })[1]);
 
     const payload = mocks.sendReactionAck.mock.calls[0][0] as {
       clientReactionId: string;

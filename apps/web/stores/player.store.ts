@@ -47,6 +47,7 @@ interface PlayerState {
 
   // Error state
   error: string | null;
+  autoplayBlockedMessage: string | null;
 
   // Actions - Video
   setVideo: (id: string, url: string, title: string) => void;
@@ -86,6 +87,7 @@ interface PlayerState {
   setBuffering: (buffering: boolean) => void;
   setEnded: (ended: boolean) => void;
   setError: (error: string | null) => void;
+  setAutoplayBlocked: (message: string | null) => void;
   reset: () => void;
 }
 
@@ -115,6 +117,7 @@ const initialState = {
   isSettingsOpen: false,
   lastActivityTime: 0,
   error: null,
+  autoplayBlockedMessage: null,
 };
 
 /**
@@ -135,6 +138,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       currentTime: 0,
       progress: 0,
       error: null,
+      autoplayBlockedMessage: null,
     }),
 
   clearVideo: () =>
@@ -150,7 +154,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }),
 
   // Playback actions
-  play: () => set({ isPlaying: true, isPaused: false, isEnded: false }),
+  play: () =>
+    set({
+      isPlaying: true,
+      isPaused: false,
+      isEnded: false,
+      error: null,
+      autoplayBlockedMessage: null,
+    }),
   pause: () => set({ isPlaying: false, isPaused: true }),
   togglePlay: () => {
     const { isPlaying } = get();
@@ -209,7 +220,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   // State actions
   setBuffering: (buffering) => set({ isBuffering: buffering }),
   setEnded: (ended) => set({ isEnded: ended, isPlaying: false, isPaused: true }),
-  setError: (error) => set({ error, isPlaying: false, isPaused: true }),
+  setError: (error) =>
+    set({ error, autoplayBlockedMessage: null, isPlaying: false, isPaused: true }),
+  setAutoplayBlocked: (message) =>
+    set({ autoplayBlockedMessage: message, isPlaying: false, isPaused: true }),
 
   // Reset
   reset: () => set(initialState),

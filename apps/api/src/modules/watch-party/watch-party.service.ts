@@ -185,13 +185,19 @@ export class WatchPartyService {
   ) {}
 
   async createRoom(userId: string, dto: CreateWatchPartyRoomDto) {
-    await this.assertContentExists(dto.contentId, 'Content not found');
-    if (dto.episodeId) {
-      await this.assertContentExists(dto.episodeId, 'Episode not found');
-    }
-    await this.assertPlayableContentPublished(
-      dto.episodeId ?? dto.contentId,
-      'Content is not available',
+    await this.assertPlayableTargetAvailable(
+      {
+        contentId: dto.contentId,
+        episodeId: dto.episodeId ?? null,
+      },
+      {
+        missingMessage: 'Content not found',
+        unavailableMessage: 'Content is not available',
+        childRequiredMessage:
+          'Watch party requires a playable episode or lesson for structured content',
+        childMismatchMessage:
+          'Watch party episode does not belong to the selected content',
+      },
     );
 
     const inviteToken = await this.generateUniqueInviteToken();
@@ -486,19 +492,27 @@ export class WatchPartyService {
 
     await this.assertPollContentsAvailable(options);
 
-    const poll = await this.prisma.watchPartyPoll.create({
-      data: {
-        roomId: room.id,
-        createdByUserId: userId,
-        options: {
-          create: options.map((option) => ({
-            contentId: option.contentId,
-            episodeId: option.episodeId,
-          })),
+    let poll;
+    try {
+      poll = await this.prisma.watchPartyPoll.create({
+        data: {
+          roomId: room.id,
+          createdByUserId: userId,
+          options: {
+            create: options.map((option) => ({
+              contentId: option.contentId,
+              episodeId: option.episodeId,
+            })),
+          },
         },
-      },
-      include: POLL_INCLUDE,
-    });
+        include: POLL_INCLUDE,
+      });
+    } catch (error) {
+      if (this.isUniqueConstraintError(error)) {
+        throw new ConflictException('A poll is already active in this room');
+      }
+      throw error;
+    }
 
     return this.mapPoll(poll, userId);
   }
@@ -794,7 +808,7 @@ export class WatchPartyService {
         ? input.playbackRate
         : room.playbackRate;
 
-    const data: Prisma.WatchPartyRoomUpdateInput = {
+    const data: Prisma.WatchPartyRoomUpdateManyMutationInput = {
       currentTime,
       playbackRate,
       sequence: { increment: 1 },
@@ -806,9 +820,17 @@ export class WatchPartyService {
       data.playbackStatus = WatchPartyPlaybackStatus.PAUSED;
     }
 
-    const updated = await this.prisma.watchPartyRoom.update({
-      where: { id: room.id },
+    const updateResult = await this.prisma.watchPartyRoom.updateMany({
+      where: { id: room.id, sequence: input.sequence },
       data,
+    });
+
+    if (updateResult.count !== 1) {
+      throw new ConflictException('Playback event is stale');
+    }
+
+    const updated = await this.prisma.watchPartyRoom.findUniqueOrThrow({
+      where: { id: room.id },
       include: ROOM_INCLUDE,
     });
 
@@ -982,6 +1004,36 @@ export class WatchPartyService {
     options: PollOptionInput[],
     unavailableMessage = 'Poll option content is not available',
   ) {
+    await this.assertPlayableTargetsAvailable(options, {
+      missingMessage: 'Poll option content not found',
+      unavailableMessage,
+      childRequiredMessage: 'Poll option requires a playable episode or lesson',
+      childMismatchMessage:
+        'Poll option episode does not belong to the selected content',
+    });
+  }
+
+  private async assertPlayableTargetAvailable(
+    option: PollOptionInput,
+    messages: {
+      missingMessage: string;
+      unavailableMessage: string;
+      childRequiredMessage: string;
+      childMismatchMessage: string;
+    },
+  ) {
+    await this.assertPlayableTargetsAvailable([option], messages);
+  }
+
+  private async assertPlayableTargetsAvailable(
+    options: PollOptionInput[],
+    messages: {
+      missingMessage: string;
+      unavailableMessage: string;
+      childRequiredMessage: string;
+      childMismatchMessage: string;
+    },
+  ) {
     const ids = new Set<string>();
     for (const option of options) {
       ids.add(option.contentId);
@@ -1007,7 +1059,7 @@ export class WatchPartyService {
     const missingId = [...ids].find((id) => !foundIds.has(id));
 
     if (missingId) {
-      throw new NotFoundException('Poll option content not found');
+      throw new NotFoundException(messages.missingMessage);
     }
 
     for (const option of options) {
@@ -1015,7 +1067,7 @@ export class WatchPartyService {
       if (!rootContent) continue;
 
       if (rootContent.status !== ContentStatus.PUBLISHED) {
-        throw new ForbiddenException(unavailableMessage);
+        throw new ForbiddenException(messages.unavailableMessage);
       }
 
       if (option.episodeId) {
@@ -1023,24 +1075,24 @@ export class WatchPartyService {
         if (!childContent) continue;
 
         if (childContent.status !== ContentStatus.PUBLISHED) {
-          throw new ForbiddenException(unavailableMessage);
+          throw new ForbiddenException(messages.unavailableMessage);
         }
 
         if (!this.isValidStructuredChild(rootContent, childContent)) {
-          throw new BadRequestException(
-            'Poll option episode does not belong to the selected content',
-          );
+          throw new BadRequestException(messages.childMismatchMessage);
         }
 
         continue;
       }
 
       if (this.isStructuredRootContent(rootContent)) {
-        throw new BadRequestException(
-          'Poll option requires a playable episode or lesson',
-        );
+        throw new BadRequestException(messages.childRequiredMessage);
       }
     }
+  }
+
+  private isUniqueConstraintError(error: unknown) {
+    return (error as { code?: string }).code === 'P2002';
   }
 
   private isStructuredRootContent(content: {
@@ -1138,32 +1190,6 @@ export class WatchPartyService {
       seasonNumber: next.seasonNumber,
       episodeNumber: next.episodeNumber,
     };
-  }
-
-  private async assertContentExists(contentId: string, message: string) {
-    const content = await this.prisma.content.findUnique({
-      where: { id: contentId },
-      select: { id: true },
-    });
-
-    if (!content) {
-      throw new NotFoundException(message);
-    }
-  }
-
-  private async assertPlayableContentPublished(contentId: string, message: string) {
-    const content = await this.prisma.content.findUnique({
-      where: { id: contentId },
-      select: { id: true, status: true },
-    });
-
-    if (!content) {
-      throw new NotFoundException(message);
-    }
-
-    if (content.status !== ContentStatus.PUBLISHED) {
-      throw new ForbiddenException(message);
-    }
   }
 
   private async getAuthorizedRoom(roomId: string, userId: string) {

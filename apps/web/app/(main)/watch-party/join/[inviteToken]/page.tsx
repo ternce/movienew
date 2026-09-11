@@ -133,11 +133,6 @@ type FloatingReaction = WatchPartyReactionEvent & {
 
 type ConfirmAction = "leave" | "end" | null;
 
-type RoomEventToast = {
-  id: string;
-  message: string;
-};
-
 type JoinStatus =
   | "hydrating"
   | "unauthorized"
@@ -150,6 +145,31 @@ type JoinStatus =
 type PlaybackTiming = {
   serverClockOffsetMs: number;
 };
+
+function WatchPartyReactionControls({
+  className,
+  onReaction,
+}: {
+  className?: string;
+  onReaction: (reaction: WatchPartyReactionType) => void;
+}) {
+  return (
+    <div className={cn("sesh-watch-party-reaction-bar", className)}>
+      {QUICK_REACTIONS.map((reaction) => (
+        <Button
+          key={reaction}
+          variant="ghost"
+          size="icon"
+          className="sesh-reaction-button h-11 w-11 bg-white/8 text-xl md:h-10 md:w-10"
+          aria-label={`Отправить реакцию ${reaction}`}
+          onClick={() => onReaction(reaction)}
+        >
+          <span>{reaction}</span>
+        </Button>
+      ))}
+    </div>
+  );
+}
 
 function getServerTimeMs(state: WatchPartyPlaybackState) {
   const serverTime = new Date(state.serverTime || state.updatedAt).getTime();
@@ -637,7 +657,6 @@ function WatchPartyJoinPageContent() {
   const [isSyncingPlayback, setIsSyncingPlayback] = React.useState(false);
   const [syncError, setSyncError] = React.useState<string | null>(null);
   const [roomEndedOverlay, setRoomEndedOverlay] = React.useState(false);
-  const [eventToasts, setEventToasts] = React.useState<RoomEventToast[]>([]);
 
   const chatListRef = React.useRef<HTMLDivElement>(null);
   const reactionTimersRef = React.useRef<Map<string, number>>(new Map());
@@ -671,16 +690,7 @@ function WatchPartyJoinPageContent() {
   isHostRef.current = isHost;
 
   const pushRoomEvent = React.useCallback((message: string) => {
-    const id =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-    setEventToasts((current) => [...current.slice(-3), { id, message }]);
     toast.message(message, { duration: 3200 });
-    window.setTimeout(() => {
-      setEventToasts((current) => current.filter((event) => event.id !== id));
-    }, 3600);
   }, []);
 
   const getPlaybackTiming = React.useCallback(
@@ -1820,13 +1830,6 @@ function WatchPartyJoinPageContent() {
             : undefined,
         }}
       />
-      <div className="sesh-room-event-stack" aria-live="polite" aria-atomic="false">
-        {eventToasts.map((event) => (
-          <div key={event.id} className="sesh-room-event-toast">
-            {event.message}
-          </div>
-        ))}
-      </div>
       {roomEndedOverlay && (
         <div className="sesh-room-ended-overlay">
           <div className="sesh-room-ended-panel">
@@ -1841,13 +1844,8 @@ function WatchPartyJoinPageContent() {
       )}
       <div className="sesh-watch-party-shell">
         <header className="sesh-watch-party-header">
-          <Button className="sesh-premium-button" variant="ghost" onClick={handleLeave}>
-            <DoorOpen className="h-4 w-4" />
-            Покинуть комнату
-          </Button>
-
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-lg font-semibold text-white md:text-xl">
+            <h1 className="text-lg font-semibold leading-tight text-white md:text-xl">
               Совместный просмотр
             </h1>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-white/58">
@@ -2014,7 +2012,7 @@ function WatchPartyJoinPageContent() {
                 ))}
               </div>
 
-              <div className="sesh-watch-party-reaction-bar absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 gap-1.5 rounded-full border border-white/10 bg-black/42 p-1.5 shadow-lg backdrop-blur-xl">
+              <div className="sesh-watch-party-reaction-bar absolute bottom-3 left-1/2 z-20 hidden -translate-x-1/2 gap-1.5 rounded-full border border-white/10 bg-black/42 p-1.5 shadow-lg backdrop-blur-xl md:flex">
                 {QUICK_REACTIONS.map((reaction) => (
                   <Button
                     key={reaction}
@@ -2119,6 +2117,11 @@ function WatchPartyJoinPageContent() {
                 </Button>
               )}
             </div>
+
+            <WatchPartyReactionControls
+              className="mt-3 flex w-full justify-center gap-2 rounded-2xl border border-white/8 bg-white/6 p-2 shadow-lg backdrop-blur-md md:hidden"
+              onReaction={handleReaction}
+            />
 
             <section className="sesh-now-watching mx-auto mt-4 w-full max-w-4xl overflow-hidden rounded-2xl">
               <div className="flex gap-3 p-3">

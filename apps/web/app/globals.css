@@ -6873,38 +6873,6 @@
   transition: border-color 180ms ease, background-color 180ms ease;
 }
 
-.sesh-room-event-stack {
-  position: fixed;
-  top: 82px;
-  right: clamp(1rem, 2vw, 2rem);
-  z-index: 45;
-  display: grid;
-  width: min(360px, calc(100vw - 2rem));
-  gap: 0.5rem;
-  pointer-events: none;
-}
-
-.sesh-room-event-toast {
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
-  padding: 0.75rem 0.9rem;
-  color: #f5f7ff;
-  background:
-    linear-gradient(135deg, rgba(34, 8, 29, 0.74), rgba(6, 11, 32, 0.72)),
-    rgba(7, 4, 16, 0.78);
-  box-shadow:
-    inset 0 0 0 1px rgba(199, 15, 79, 0.04),
-    0 18px 46px rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  animation: sesh-room-event-in 220ms ease-out both;
-}
-
-@keyframes sesh-room-event-in {
-  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
 .sesh-room-ended-overlay {
   position: fixed;
   inset: 0;
@@ -7165,7 +7133,7 @@
 
 @media (max-width: 1023px) {
   .sesh-watch-party-shell { padding-inline: 1rem; }
-  .sesh-watch-party-header { flex-wrap: wrap; align-content: center; gap: 0.75rem; padding-block: 0.75rem; }
+  .sesh-watch-party-header { flex-wrap: wrap; align-content: center; gap: 0.65rem; padding-block: 0.7rem; }
   .sesh-watch-party-theater { grid-template-columns: minmax(0, 1fr); }
   .sesh-room-panel {
     position: static;
@@ -7192,7 +7160,10 @@
   .watch-party-reaction-pop { bottom: clamp(6rem, 16%, 7.5rem); --wp-reaction-travel: min(var(--wp-reaction-travel, 170px), 132px); }
   .watch-party-reaction-bubble { width: 2.45rem; height: 2.45rem; font-size: 1.45rem; }
   .sesh-watch-party-header > .flex.shrink-0 { width: 100%; flex-wrap: wrap; }
+  .sesh-watch-party-header .sesh-premium-button { min-height: 2.5rem; }
   .sesh-watch-party-floating-controls { width: 100%; justify-content: center; border-radius: 16px; }
+  .sesh-watch-party-floating-controls > .sesh-premium-button { flex: 1 1 9.5rem; min-height: 2.75rem; }
+  .sesh-watch-party-reaction-bar { max-width: 100%; }
   .sesh-room-chat:not(.sesh-room-chat-collapsed) { min-height: min(380px, 58vh); }
 }
 
