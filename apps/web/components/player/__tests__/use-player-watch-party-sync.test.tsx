@@ -8,6 +8,8 @@ import {
   type PlaybackRemoteCommand,
 } from "../use-player";
 
+const AUTOPLAY_BLOCKED_MESSAGE = "Нажмите, чтобы синхронизировать воспроизведение";
+
 const storeActions = vi.hoisted(() => ({
   play: vi.fn(),
   pause: vi.fn(),
@@ -238,6 +240,7 @@ describe("usePlayer Watch Party remote sync", () => {
   });
 
   it("clears pending state and confirms playback when media starts", async () => {
+    vi.useFakeTimers();
     render(<Harness remoteCommand={null} />);
     const video = screen.getByTestId("video") as HTMLVideoElement;
     const state = {
@@ -261,6 +264,34 @@ describe("usePlayer Watch Party remote sync", () => {
 
     expect(storeActions.play).toHaveBeenCalledTimes(1);
     expect(storeActions.setAutoplayBlocked).toHaveBeenLastCalledWith(null);
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    expect(storeActions.hideControls).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not auto-hide controls while paused", () => {
+    vi.useFakeTimers();
+    render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 0,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 3,
+    };
+    installVideoState(video, state);
+
+    act(() => {
+      video.dispatchEvent(new Event("pause"));
+      vi.advanceTimersByTime(3000);
+    });
+
+    expect(storeActions.pause).toHaveBeenCalled();
+    expect(storeActions.hideControls).not.toHaveBeenCalled();
   });
 
   it("uses an advancing timeupdate as playback confirmation when playing is missed", () => {
@@ -742,8 +773,8 @@ describe("usePlayer Watch Party remote sync", () => {
     rerender(<Harness remoteCommand={command(20, "PLAYING", 5, "play")} onError={onError} />);
     await act(async () => {});
 
-    expect(storeActions.setAutoplayBlocked).toHaveBeenCalledWith("Tap to synchronize playback");
-    expect(storeActions.setError).not.toHaveBeenCalledWith("Tap to synchronize playback");
+    expect(storeActions.setAutoplayBlocked).toHaveBeenCalledWith(AUTOPLAY_BLOCKED_MESSAGE);
+    expect(storeActions.setError).not.toHaveBeenCalledWith(AUTOPLAY_BLOCKED_MESSAGE);
     expect(onError).not.toHaveBeenCalled();
     expect(state.paused).toBe(true);
   });
@@ -782,7 +813,7 @@ describe("usePlayer Watch Party remote sync", () => {
     );
     await act(async () => {});
 
-    expect(storeActions.setAutoplayBlocked).toHaveBeenCalledWith("Tap to synchronize playback");
+    expect(storeActions.setAutoplayBlocked).toHaveBeenCalledWith(AUTOPLAY_BLOCKED_MESSAGE);
     expect(state.currentTime).toBe(5);
 
     vi.setSystemTime(new Date("2026-08-27T12:00:04.000Z"));

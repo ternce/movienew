@@ -226,6 +226,16 @@ describe('VideoPlayer touch gestures', () => {
   });
 
   describe('Container attributes', () => {
+    it('should restore controls on pointer activity', () => {
+      mockIsControlsVisible = false;
+      const { container } = render(<VideoPlayer src="test.m3u8" />);
+      const playerContainer = container.querySelector('[data-player-container]');
+
+      fireEvent.pointerMove(playerContainer!);
+
+      expect(mockUpdateActivity).toHaveBeenCalledTimes(1);
+    });
+
     it('should have touch-manipulation class', () => {
       const { container } = render(<VideoPlayer src="test.m3u8" />);
       const playerContainer = container.querySelector('[data-player-container]');

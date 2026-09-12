@@ -119,6 +119,8 @@ function isAutoplayBlockedError(error: unknown) {
   return name === "NotAllowedError";
 }
 
+const AUTOPLAY_BLOCKED_MESSAGE = "Нажмите, чтобы синхронизировать воспроизведение";
+
 type RemoteStartupCommand = {
   command: PlaybackRemoteCommand;
   version: number;
@@ -349,7 +351,7 @@ export function usePlayer({
             if (version !== remoteCommandVersionRef.current) return;
             if (isAutoplayBlockedError(error)) {
               pendingRemoteCommandRef.current = command;
-              setAutoplayBlocked("Tap to synchronize playback");
+              setAutoplayBlocked(AUTOPLAY_BLOCKED_MESSAGE);
             } else {
               setError("Ошибка воспроизведения");
             }
@@ -612,6 +614,15 @@ export function usePlayer({
       setBuffering(false);
       setError(null);
       setAutoplayBlocked(null);
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+      controlsTimeoutRef.current = setTimeout(() => {
+        const currentVideo = videoRef.current;
+        if (currentVideo && !currentVideo.paused && !currentVideo.ended) {
+          hideControls();
+        }
+      }, 3000);
       return true;
     };
     const handleTimeUpdate = () => {
@@ -704,6 +715,7 @@ export function usePlayer({
     setError,
     setAutoplayBlocked,
     setPlayPending,
+    hideControls,
     isPlaying,
     onEnded,
     onError,
@@ -899,7 +911,7 @@ export function usePlayer({
       setPlayPending(true);
       video.play().catch((error: unknown) => {
         if (isAutoplayBlockedError(error)) {
-          setAutoplayBlocked("Tap to synchronize playback");
+          setAutoplayBlocked(AUTOPLAY_BLOCKED_MESSAGE);
         } else {
           setError("Ошибка воспроизведения");
         }

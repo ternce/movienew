@@ -4,26 +4,31 @@ import { describe, expect, it, vi } from "vitest";
 import { PlayerControls } from "../player-controls";
 import { PlayerOverlay } from "../player-overlay";
 
+const mockPlayerState = vi.hoisted(() => ({
+  isPlaying: false,
+  isPlayPending: false,
+  isPaused: true,
+  isBuffering: false,
+  isEnded: false,
+  error: null as string | null,
+  autoplayBlockedMessage: null as string | null,
+  isFullscreen: false,
+  isControlsVisible: true,
+  currentTime: 0,
+  duration: 120,
+  bufferedTime: 0,
+  progress: 0,
+  volume: 1,
+  isMuted: false,
+  quality: "auto",
+  availableQualities: ["auto"],
+  playbackSpeed: 1,
+  isSettingsOpen: false,
+}));
+
 vi.mock("@/stores/player.store", () => ({
   usePlayerStore: () => ({
-    isPlaying: false,
-    isPaused: true,
-    isBuffering: false,
-    isEnded: false,
-    error: null,
-    autoplayBlockedMessage: null,
-    isFullscreen: false,
-    isControlsVisible: true,
-    currentTime: 0,
-    duration: 120,
-    bufferedTime: 0,
-    progress: 0,
-    volume: 1,
-    isMuted: false,
-    quality: "auto",
-    availableQualities: ["auto"],
-    playbackSpeed: 1,
-    isSettingsOpen: false,
+    ...mockPlayerState,
     setSettingsOpen: vi.fn(),
     setPlaybackSpeed: vi.fn(),
     seekRelative: vi.fn(),
@@ -33,6 +38,19 @@ vi.mock("@/stores/player.store", () => ({
 }));
 
 describe("mobile player controls", () => {
+  beforeEach(() => {
+    Object.assign(mockPlayerState, {
+      isPlaying: false,
+      isPlayPending: false,
+      isPaused: true,
+      isBuffering: false,
+      isEnded: false,
+      error: null,
+      autoplayBlockedMessage: null,
+      isControlsVisible: true,
+    });
+  });
+
   it("uses compact mobile visuals while preserving desktop sizing classes", () => {
     const { container } = render(
       <PlayerControls
@@ -65,5 +83,40 @@ describe("mobile player controls", () => {
     expect(playButton.className).toContain("w-14");
     expect(playButton.className).toContain("sm:h-20");
     expect(playButton.className).toContain("sm:w-20");
+  });
+
+  it("hides the center play button while confirmed playback is active", () => {
+    mockPlayerState.isPlaying = true;
+    mockPlayerState.isPaused = false;
+
+    const { container } = render(<PlayerOverlay onPlayPause={vi.fn()} />);
+
+    expect(container.querySelector('button[aria-label="Воспроизвести"]')).not.toBeInTheDocument();
+  });
+
+  it("shows the center play button while paused", () => {
+    const { container } = render(<PlayerOverlay onPlayPause={vi.fn()} />);
+
+    expect(container.querySelector('button[aria-label="Воспроизвести"]')).toBeInTheDocument();
+  });
+
+  it("does not show the center play button during pending playback startup", () => {
+    mockPlayerState.isPlayPending = true;
+    mockPlayerState.isPaused = false;
+
+    const { container } = render(<PlayerOverlay onPlayPause={vi.fn()} />);
+
+    expect(container.querySelector('button[aria-label="Воспроизвести"]')).not.toBeInTheDocument();
+  });
+
+  it("renders Russian autoplay recovery text without the old English copy", () => {
+    mockPlayerState.isPaused = true;
+    mockPlayerState.autoplayBlockedMessage =
+      "Нажмите, чтобы синхронизировать воспроизведение";
+
+    const { queryByText, getByText } = render(<PlayerOverlay onPlayPause={vi.fn()} />);
+
+    expect(getByText("Нажмите, чтобы синхронизировать воспроизведение")).toBeInTheDocument();
+    expect(queryByText("Tap to synchronize playback")).not.toBeInTheDocument();
   });
 });

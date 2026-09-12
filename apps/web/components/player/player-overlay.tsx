@@ -26,6 +26,7 @@ export function PlayerOverlay({
 }: PlayerOverlayProps) {
   const {
     isPlaying,
+    isPlayPending,
     isPaused,
     isBuffering,
     isEnded,
@@ -36,7 +37,8 @@ export function PlayerOverlay({
 
   // Determine what to show
   const showAutoplayBlocked = !!autoplayBlockedMessage && !error;
-  const showPlayButton = isPaused && !isBuffering && !isEnded && !error && !showAutoplayBlocked;
+  const showPlayButton =
+    isPaused && !isPlayPending && !isPlaying && !isBuffering && !isEnded && !error && !showAutoplayBlocked;
   const showPauseIndicator = isPlaying && isControlsVisible;
   const showBuffering = isBuffering;
   const showEnded = isEnded && !error;
@@ -117,7 +119,7 @@ export function PlayerOverlay({
               }
             }}
             className="group flex h-14 w-14 items-center justify-center rounded-full bg-mp-accent-primary/90 shadow-glow-primary backdrop-blur-sm transition-transform hover:scale-110 focus:outline-none focus-visible:ring-4 focus-visible:ring-mp-accent-primary/50 sm:h-20 sm:w-20"
-            aria-label="Tap to synchronize playback"
+            aria-label="Нажмите, чтобы синхронизировать воспроизведение"
           >
             <Play className="ml-0.5 h-7 w-7 text-white sm:ml-1 sm:h-10 sm:w-10" weight="fill" />
           </button>
