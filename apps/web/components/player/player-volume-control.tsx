@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { SpeakerNone, SpeakerLow, SpeakerHigh, SpeakerSlash } from '@phosphor-icons/react';
 
+import { useIsMobile } from '@/hooks/use-media-query';
 import { cn } from '@/lib/utils';
 import { usePlayerStore } from '@/stores/player.store';
 
@@ -15,6 +16,7 @@ interface PlayerVolumeControlProps {
  */
 export function PlayerVolumeControl({ className }: PlayerVolumeControlProps) {
   const { volume, isMuted, setVolume, toggleMute } = usePlayerStore();
+  const isMobile = useIsMobile();
   const [isExpanded, setIsExpanded] = React.useState(false);
   const [isDragging, setIsDragging] = React.useState(false);
   const sliderRef = React.useRef<HTMLDivElement>(null);
@@ -128,20 +130,23 @@ export function PlayerVolumeControl({ className }: PlayerVolumeControlProps) {
   return (
     <>
       {/* Mobile: mute-only toggle (phones have hardware volume) */}
-      <div className={cn('flex items-center md:hidden', className)}>
+      {isMobile && (
+      <div className={cn('flex items-center', className)}>
         <button
           type="button"
           onClick={toggleMute}
-          className="p-2.5 hover:bg-white/10 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mp-accent-primary"
+          className="flex h-10 w-10 items-center justify-center rounded-lg p-2.5 transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-mp-accent-primary"
           aria-label={isMuted ? 'Включить звук' : 'Выключить звук'}
         >
-          <VolumeIcon className="w-5 h-5 text-white" />
+          <VolumeIcon className="h-4 w-4 text-white" />
         </button>
       </div>
+      )}
 
       {/* Desktop: mute button + expandable slider */}
+      {!isMobile && (
       <div
-        className={cn('hidden md:flex items-center gap-2', className)}
+        className={cn('flex items-center gap-2', className)}
         onMouseEnter={() => setIsExpanded(true)}
         onMouseLeave={() => !isDragging && setIsExpanded(false)}
       >
@@ -188,6 +193,7 @@ export function PlayerVolumeControl({ className }: PlayerVolumeControlProps) {
           </div>
         </div>
       </div>
+      )}
     </>
   );
 }

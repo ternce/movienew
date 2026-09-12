@@ -109,6 +109,16 @@ function shouldRestartEndedPlayback(video: HTMLVideoElement, targetTime: number)
   );
 }
 
+function isAutoplayBlockedError(error: unknown) {
+  const name =
+    error instanceof DOMException
+      ? error.name
+      : error instanceof Error
+        ? error.name
+        : "";
+  return name === "NotAllowedError";
+}
+
 /**
  * HLS.js video player hook
  * Handles all video playback logic and syncs with Zustand store
@@ -176,6 +186,7 @@ export function usePlayer({
     setEnded,
     setError,
     setAutoplayBlocked,
+    setPlayPending,
     setVolume,
     setMuted,
     setQuality,
@@ -290,16 +301,14 @@ export function usePlayer({
 
       if (status === "PLAYING") {
         if (video.paused || video.ended) {
+          setPlayPending(true);
           await video.play().catch((error: unknown) => {
             if (version !== remoteCommandVersionRef.current) return;
-            const name =
-              error instanceof DOMException
-                ? error.name
-                : error instanceof Error
-                  ? error.name
-                  : "";
-            if (name === "NotAllowedError") {
+            if (isAutoplayBlockedError(error)) {
+              pendingRemoteCommandRef.current = command;
               setAutoplayBlocked("Tap to synchronize playback");
+            } else {
+              setError("Ошибка воспроизведения");
             }
           });
           if (version !== remoteCommandVersionRef.current) {
@@ -315,9 +324,12 @@ export function usePlayer({
           }
         }
       } else if (status === "PAUSED") {
+        pendingRemoteCommandRef.current = null;
         clearSoftCorrection(playbackRate);
         if (!video.paused) {
           video.pause();
+        } else {
+          setPlayPending(false);
         }
       }
 
@@ -336,8 +348,17 @@ export function usePlayer({
       setCurrentTime,
       setEnded,
       setError,
+      setPlayPending,
     ],
   );
+
+  const retryBlockedAutoplay = useCallback(() => {
+    const command = pendingRemoteCommandRef.current;
+    if (!command || getRemotePlaybackStatus(command) !== "PLAYING") return false;
+    const version = remoteCommandVersionRef.current;
+    void applyRemotePlaybackCommand(command, version);
+    return true;
+  }, [applyRemotePlaybackCommand]);
 
   // Initialize HLS.js
   useEffect(() => {
@@ -346,8 +367,10 @@ export function usePlayer({
 
     endedCallbackFiredRef.current = false;
     sourceTransitionRef.current = true;
+    pendingRemoteCommandRef.current = null;
     setError(null);
     setAutoplayBlocked(null);
+    setPlayPending(false);
     if (sourceTransitionReleaseRef.current) {
       clearTimeout(sourceTransitionReleaseRef.current);
       sourceTransitionReleaseRef.current = null;
@@ -480,6 +503,8 @@ export function usePlayer({
     setAvailableQualities,
     setQuality,
     setError,
+    setAutoplayBlocked,
+    setPlayPending,
   ]);
 
   // Video event handlers
@@ -497,9 +522,13 @@ export function usePlayer({
       // changes (source replacement, MediaSource attach, recovery). They must
       // update local UI only. Watch Party host commands are emitted from the
       // explicit user control path in togglePlayPause below.
-      play();
+      setPlayPending(true);
     };
     const handlePause = () => {
+      const pendingCommand = pendingRemoteCommandRef.current;
+      if (!pendingCommand || getRemotePlaybackStatus(pendingCommand) !== "PLAYING") {
+        pendingRemoteCommandRef.current = null;
+      }
       pause();
       flushProgress("pause");
     };
@@ -527,7 +556,6 @@ export function usePlayer({
     const handleLoadedMetadata = () => {
       setDuration(video.duration);
       setError(null);
-      setAutoplayBlocked(null);
       const pendingCommand = pendingRemoteCommandRef.current;
       if (pendingCommand) {
         const version = remoteCommandVersionRef.current;
@@ -543,9 +571,19 @@ export function usePlayer({
     const handleCanPlay = () => {
       setBuffering(false);
       setError(null);
-      setAutoplayBlocked(null);
     };
     const handlePlaying = () => {
+      const latestCommand = latestRemoteCommandRef.current;
+      if (
+        latestCommand &&
+        getRemotePlaybackStatus(latestCommand) === "PAUSED" &&
+        !video.paused
+      ) {
+        video.pause();
+        return;
+      }
+      pendingRemoteCommandRef.current = null;
+      play();
       setBuffering(false);
       setError(null);
       setAutoplayBlocked(null);
@@ -600,6 +638,7 @@ export function usePlayer({
     setMuted,
     setError,
     setAutoplayBlocked,
+    setPlayPending,
     onEnded,
     onError,
     onProgress,
@@ -783,15 +822,23 @@ export function usePlayer({
         : 0;
     const playbackRate = video.playbackRate || 1;
 
-    if (nextType === "play") {
+      if (nextType === "play") {
       if (shouldReplay) {
         endedCallbackFiredRef.current = false;
         setEnded(false);
         video.currentTime = 0;
         setCurrentTime(0);
       }
-      video.play().catch(() => {});
+      setPlayPending(true);
+      video.play().catch((error: unknown) => {
+        if (isAutoplayBlockedError(error)) {
+          setAutoplayBlocked("Tap to synchronize playback");
+        } else {
+          setError("Ошибка воспроизведения");
+        }
+      });
     } else {
+      pendingRemoteCommandRef.current = null;
       video.pause();
     }
 
@@ -802,7 +849,7 @@ export function usePlayer({
         playbackRate,
       });
     }
-  }, [onPlaybackAction, setCurrentTime, setEnded]);
+  }, [onPlaybackAction, setAutoplayBlocked, setCurrentTime, setEnded, setError, setPlayPending]);
 
   // Fullscreen handlers
   const enterFullscreen = useCallback(async () => {
@@ -979,6 +1026,7 @@ export function usePlayer({
     videoRef,
     // Actions
     togglePlayPause,
+    retryBlockedAutoplay,
     seek,
     changeQuality,
     toggleFullscreen,

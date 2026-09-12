@@ -136,16 +136,16 @@ export function PlayerProgressBar({ onSeek, className }: PlayerProgressBarProps)
   }, [isDragging, getTimeFromPosition, onSeek]);
 
   return (
-    <div className={cn('flex items-center gap-3', className)}>
+    <div className={cn('flex items-center gap-2 sm:gap-3', className)}>
       {/* Current time */}
-      <span className="text-xs text-white font-mono w-12 text-right tabular-nums">
+      <span className="w-10 text-right font-mono text-[10px] tabular-nums text-white sm:w-12 sm:text-xs">
         {formatTime(currentTime)}
       </span>
 
-      {/* Progress bar container - min-h-[44px] provides adequate touch target */}
+      {/* Mobile keeps a 40px touch target while desktop preserves the existing 44px target. */}
       <div
         ref={progressBarRef}
-        className="relative flex-1 group cursor-pointer min-h-[44px] flex items-center touch-none"
+        className="group relative flex min-h-10 flex-1 cursor-pointer items-center touch-none sm:min-h-[44px]"
         onClick={handleClick}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -173,7 +173,7 @@ export function PlayerProgressBar({ onSeek, className }: PlayerProgressBarProps)
           <div
             className={cn(
               'absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white rounded-full shadow-lg',
-              'opacity-0 group-hover:opacity-100 transition-opacity',
+              'opacity-0 transition-opacity group-hover:opacity-100 touch:opacity-100',
               isDragging && 'opacity-100 scale-125'
             )}
             style={{ left: `calc(${progress}% - 7px)` }}
@@ -192,7 +192,7 @@ export function PlayerProgressBar({ onSeek, className }: PlayerProgressBarProps)
       </div>
 
       {/* Duration */}
-      <span className="text-xs text-white font-mono w-12 tabular-nums">
+      <span className="w-10 font-mono text-[10px] tabular-nums text-white sm:w-12 sm:text-xs">
         {formatTime(duration)}
       </span>
     </div>

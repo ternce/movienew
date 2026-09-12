@@ -107,14 +107,14 @@ export function PlayerSettingsMenu({ onQualityChange, className }: PlayerSetting
         type="button"
         onClick={() => setSettingsOpen(!isSettingsOpen)}
         className={cn(
-          'p-2 md:p-2.5 hover:bg-white/10 rounded-lg transition-colors',
+          'flex h-10 w-10 items-center justify-center rounded-lg transition-colors hover:bg-white/10 sm:h-auto sm:w-auto sm:p-2 md:p-2.5',
           'focus:outline-none focus-visible:ring-2 focus-visible:ring-mp-accent-primary',
           isSettingsOpen && 'bg-white/10'
         )}
         aria-label="Настройки"
         aria-expanded={isSettingsOpen}
       >
-        <Gear className={cn('w-5 h-5 text-white transition-transform', isSettingsOpen && 'rotate-45')} />
+        <Gear className={cn('h-4 w-4 text-white transition-transform sm:h-5 sm:w-5', isSettingsOpen && 'rotate-45')} />
       </button>
 
       {/* Menu dropdown */}

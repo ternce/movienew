@@ -9,6 +9,7 @@ import { usePlayerStore } from '@/stores/player.store';
 
 interface PlayerOverlayProps {
   onPlayPause: () => void;
+  onAutoplayBlockedRetry?: () => boolean;
   onReplay?: () => void;
   className?: string;
 }
@@ -17,7 +18,12 @@ interface PlayerOverlayProps {
  * Large overlay button for play/pause/replay
  * Shows based on player state (paused, ended, buffering, error)
  */
-export function PlayerOverlay({ onPlayPause, onReplay, className }: PlayerOverlayProps) {
+export function PlayerOverlay({
+  onPlayPause,
+  onAutoplayBlockedRetry,
+  onReplay,
+  className,
+}: PlayerOverlayProps) {
   const {
     isPlaying,
     isPaused,
@@ -67,17 +73,17 @@ export function PlayerOverlay({ onPlayPause, onReplay, className }: PlayerOverla
             e.stopPropagation();
             onPlayPause();
           }}
-          className="pointer-events-auto group w-20 h-20 rounded-full bg-mp-accent-primary/90 backdrop-blur-sm flex items-center justify-center shadow-glow-primary hover:scale-110 transition-transform focus:outline-none focus-visible:ring-4 focus-visible:ring-mp-accent-primary/50"
+          className="pointer-events-auto group flex h-14 w-14 items-center justify-center rounded-full bg-mp-accent-primary/90 shadow-glow-primary backdrop-blur-sm transition-transform hover:scale-110 focus:outline-none focus-visible:ring-4 focus-visible:ring-mp-accent-primary/50 sm:h-20 sm:w-20"
           aria-label="Воспроизвести"
         >
-          <Play className="w-10 h-10 text-white ml-1" weight="fill" />
+          <Play className="ml-0.5 h-7 w-7 text-white sm:ml-1 sm:h-10 sm:w-10" weight="fill" />
         </button>
       )}
 
       {/* Pause indicator (brief flash on click) */}
       {showPauseIndicator && !showBuffering && (
-        <div className="w-20 h-20 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-          <Pause className="w-10 h-10 text-white" weight="fill" />
+        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-black/40 opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100 sm:h-20 sm:w-20">
+          <Pause className="h-7 w-7 text-white sm:h-10 sm:w-10" weight="fill" />
         </div>
       )}
 
@@ -90,10 +96,10 @@ export function PlayerOverlay({ onPlayPause, onReplay, className }: PlayerOverla
               e.stopPropagation();
               onReplay?.();
             }}
-            className="group w-20 h-20 rounded-full bg-mp-accent-primary/90 backdrop-blur-sm flex items-center justify-center shadow-glow-primary hover:scale-110 transition-transform focus:outline-none focus-visible:ring-4 focus-visible:ring-mp-accent-primary/50"
+            className="group flex h-14 w-14 items-center justify-center rounded-full bg-mp-accent-primary/90 shadow-glow-primary backdrop-blur-sm transition-transform hover:scale-110 focus:outline-none focus-visible:ring-4 focus-visible:ring-mp-accent-primary/50 sm:h-20 sm:w-20"
             aria-label="Воспроизвести заново"
           >
-            <ArrowCounterClockwise className="w-10 h-10 text-white" />
+            <ArrowCounterClockwise className="h-7 w-7 text-white sm:h-10 sm:w-10" />
           </button>
           <span className="text-white font-medium">Смотреть снова</span>
         </div>
@@ -106,12 +112,14 @@ export function PlayerOverlay({ onPlayPause, onReplay, className }: PlayerOverla
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onPlayPause();
+              if (!onAutoplayBlockedRetry?.()) {
+                onPlayPause();
+              }
             }}
-            className="group flex h-20 w-20 items-center justify-center rounded-full bg-mp-accent-primary/90 shadow-glow-primary backdrop-blur-sm transition-transform hover:scale-110 focus:outline-none focus-visible:ring-4 focus-visible:ring-mp-accent-primary/50"
+            className="group flex h-14 w-14 items-center justify-center rounded-full bg-mp-accent-primary/90 shadow-glow-primary backdrop-blur-sm transition-transform hover:scale-110 focus:outline-none focus-visible:ring-4 focus-visible:ring-mp-accent-primary/50 sm:h-20 sm:w-20"
             aria-label="Tap to synchronize playback"
           >
-            <Play className="ml-1 h-10 w-10 text-white" weight="fill" />
+            <Play className="ml-0.5 h-7 w-7 text-white sm:ml-1 sm:h-10 sm:w-10" weight="fill" />
           </button>
           <p className="text-sm font-medium text-white/82">{autoplayBlockedMessage}</p>
         </div>

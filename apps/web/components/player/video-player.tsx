@@ -105,6 +105,7 @@ export function VideoPlayer({
   const {
     videoRef,
     togglePlayPause,
+    retryBlockedAutoplay,
     seek,
     changeQuality,
     toggleFullscreen,
@@ -278,7 +279,11 @@ export function VideoPlayer({
       )}
 
       {/* Center overlay (play/pause/buffering/error) */}
-      <PlayerOverlay onPlayPause={togglePlayPause} onReplay={handleReplay} />
+      <PlayerOverlay
+        onPlayPause={togglePlayPause}
+        onAutoplayBlockedRetry={retryBlockedAutoplay}
+        onReplay={handleReplay}
+      />
 
       {/* Top bar (title, close button) */}
       <div data-controls>

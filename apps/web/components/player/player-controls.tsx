@@ -142,30 +142,30 @@ export function PlayerControls({
   return (
     <div
       className={cn(
-        'absolute bottom-0 left-0 right-0 px-4 pb-5 pt-8',
+        'absolute bottom-0 left-0 right-0 px-2 pb-2 pt-4 sm:px-4 sm:pb-5 sm:pt-8',
         'transition-opacity duration-300',
         isControlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none',
         className
       )}
     >
       {/* Progress bar */}
-      <PlayerProgressBar onSeek={onSeek} className="mb-5" />
+      <PlayerProgressBar onSeek={onSeek} className="mb-2 sm:mb-5" />
 
       {/* Controls row */}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-1.5 sm:gap-4">
         {/* Left controls */}
-        <div className="flex items-center gap-2 md:gap-2.5">
+        <div className="flex items-center gap-1 sm:gap-2 md:gap-2.5">
           {/* Play/Pause */}
           <button
             type="button"
             onClick={onPlayPause}
-            className="p-2 md:p-2.5 hover:bg-white/10 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mp-accent-primary"
+            className="flex h-10 w-10 items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-mp-accent-primary sm:h-auto sm:w-auto sm:p-2 md:p-2.5"
             aria-label={isPlaying ? 'Пауза' : 'Воспроизвести'}
           >
             {isPlaying ? (
-              <Pause className="w-7 h-7 text-white" weight="fill" />
+              <Pause className="h-5 w-5 text-white sm:h-7 sm:w-7" weight="fill" />
             ) : (
-              <Play className="w-7 h-7 text-white ml-0.5" weight="fill" />
+              <Play className="ml-0.5 h-5 w-5 text-white sm:h-7 sm:w-7" weight="fill" />
             )}
           </button>
 
@@ -177,10 +177,10 @@ export function PlayerControls({
                 seekRelative(-10);
                 onSeek(usePlayerStore.getState().currentTime - 10);
               }}
-              className="p-2 md:p-2.5 hover:bg-white/10 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mp-accent-primary"
+              className="flex h-10 w-10 items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-mp-accent-primary sm:h-auto sm:w-auto sm:p-2 md:p-2.5"
               aria-label="Назад на 10 секунд"
             >
-              <SkipBack className="w-5 h-5 text-white" />
+              <SkipBack className="h-4 w-4 text-white sm:h-5 sm:w-5" />
             </button>
           )}
 
@@ -192,10 +192,10 @@ export function PlayerControls({
                 seekRelative(10);
                 onSeek(usePlayerStore.getState().currentTime + 10);
               }}
-              className="p-2 md:p-2.5 hover:bg-white/10 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mp-accent-primary"
+              className="flex h-10 w-10 items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-mp-accent-primary sm:h-auto sm:w-auto sm:p-2 md:p-2.5"
               aria-label="Вперёд на 10 секунд"
             >
-              <SkipForward className="w-5 h-5 text-white" />
+              <SkipForward className="h-4 w-4 text-white sm:h-5 sm:w-5" />
             </button>
           )}
 
@@ -211,16 +211,16 @@ export function PlayerControls({
         </div>
 
         {/* Right controls */}
-        <div className="flex items-center gap-2 md:gap-2.5">
+        <div className="flex items-center gap-1 sm:gap-2 md:gap-2.5">
           {/* Subtitles */}
           {showSubtitles && onToggleSubtitles && (
             <button
               type="button"
               onClick={onToggleSubtitles}
-              className="p-2 md:p-2.5 hover:bg-white/10 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mp-accent-primary"
+              className="flex h-10 w-10 items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-mp-accent-primary sm:h-auto sm:w-auto sm:p-2 md:p-2.5"
               aria-label="Субтитры"
             >
-              <Subtitles className="w-5 h-5 text-white" />
+              <Subtitles className="h-4 w-4 text-white sm:h-5 sm:w-5" />
             </button>
           )}
 
@@ -232,7 +232,7 @@ export function PlayerControls({
             <button
               type="button"
               onClick={onTogglePiP}
-              className="hidden sm:block p-2 md:p-2.5 hover:bg-white/10 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mp-accent-primary"
+              className="hidden rounded-lg p-2 transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-mp-accent-primary sm:block md:p-2.5"
               aria-label="Картинка в картинке"
             >
               <PictureInPicture className="w-5 h-5 text-white" />
@@ -243,13 +243,13 @@ export function PlayerControls({
           <button
             type="button"
             onClick={onToggleFullscreen}
-            className="p-2 md:p-2.5 hover:bg-white/10 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-mp-accent-primary"
+            className="flex h-10 w-10 items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-mp-accent-primary sm:h-auto sm:w-auto sm:p-2 md:p-2.5"
             aria-label={isFullscreen ? 'Выйти из полноэкранного режима' : 'Полноэкранный режим'}
           >
             {isFullscreen ? (
-              <CornersIn className="w-5 h-5 text-white" />
+              <CornersIn className="h-4 w-4 text-white sm:h-5 sm:w-5" />
             ) : (
-              <CornersOut className="w-5 h-5 text-white" />
+              <CornersOut className="h-4 w-4 text-white sm:h-5 sm:w-5" />
             )}
           </button>
         </div>

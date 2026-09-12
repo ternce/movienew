@@ -21,6 +21,7 @@ interface PlayerState {
 
   // Playback state
   isPlaying: boolean;
+  isPlayPending: boolean;
   isPaused: boolean;
   isBuffering: boolean;
   isEnded: boolean;
@@ -55,6 +56,7 @@ interface PlayerState {
 
   // Actions - Playback
   play: () => void;
+  setPlayPending: (pending: boolean) => void;
   pause: () => void;
   togglePlay: () => void;
   setMuted: (muted: boolean) => void;
@@ -99,6 +101,7 @@ const initialState = {
   currentVideoUrl: null,
   currentVideoTitle: null,
   isPlaying: false,
+  isPlayPending: false,
   isPaused: true,
   isBuffering: false,
   isEnded: false,
@@ -133,6 +136,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       currentVideoUrl: url,
       currentVideoTitle: title,
       isPlaying: false,
+      isPlayPending: false,
       isPaused: true,
       isEnded: false,
       currentTime: 0,
@@ -147,6 +151,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       currentVideoUrl: null,
       currentVideoTitle: null,
       isPlaying: false,
+      isPlayPending: false,
       isPaused: true,
       currentTime: 0,
       duration: 0,
@@ -157,18 +162,21 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   play: () =>
     set({
       isPlaying: true,
+      isPlayPending: false,
       isPaused: false,
       isEnded: false,
       error: null,
       autoplayBlockedMessage: null,
     }),
-  pause: () => set({ isPlaying: false, isPaused: true }),
+  setPlayPending: (pending) =>
+    set({ isPlayPending: pending, isPlaying: false, isPaused: !pending }),
+  pause: () => set({ isPlaying: false, isPlayPending: false, isPaused: true }),
   togglePlay: () => {
     const { isPlaying } = get();
     if (isPlaying) {
-      set({ isPlaying: false, isPaused: true });
+      set({ isPlaying: false, isPlayPending: false, isPaused: true });
     } else {
-      set({ isPlaying: true, isPaused: false, isEnded: false });
+      set({ isPlaying: false, isPlayPending: true, isPaused: false, isEnded: false });
     }
   },
 
@@ -219,11 +227,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   // State actions
   setBuffering: (buffering) => set({ isBuffering: buffering }),
-  setEnded: (ended) => set({ isEnded: ended, isPlaying: false, isPaused: true }),
+  setEnded: (ended) =>
+    set({ isEnded: ended, isPlaying: false, isPlayPending: false, isPaused: true }),
   setError: (error) =>
-    set({ error, autoplayBlockedMessage: null, isPlaying: false, isPaused: true }),
+    set({ error, autoplayBlockedMessage: null, isPlaying: false, isPlayPending: false, isPaused: true }),
   setAutoplayBlocked: (message) =>
-    set({ autoplayBlockedMessage: message, isPlaying: false, isPaused: true }),
+    set({ autoplayBlockedMessage: message, isPlaying: false, isPlayPending: false, isPaused: true }),
 
   // Reset
   reset: () => set(initialState),
@@ -242,6 +251,7 @@ export const useCurrentVideo = () =>
 export const usePlaybackState = () =>
   usePlayerStore((state) => ({
     isPlaying: state.isPlaying,
+    isPlayPending: state.isPlayPending,
     isPaused: state.isPaused,
     isBuffering: state.isBuffering,
     isEnded: state.isEnded,

@@ -75,11 +75,12 @@ describe('PlayerProgressBar', () => {
   });
 
   describe('Progress bar', () => {
-    it('should have min-h-[44px] for touch targets', () => {
+    it('should preserve mobile and desktop touch targets', () => {
       mockDuration = 100;
       const { container } = render(<PlayerProgressBar onSeek={mockOnSeek} />);
-      const progressContainer = container.querySelector('.min-h-\\[44px\\]');
+      const progressContainer = container.querySelector('.min-h-10');
       expect(progressContainer).toBeInTheDocument();
+      expect(progressContainer?.className).toContain('sm:min-h-[44px]');
     });
 
     it('should have touch-none class', () => {

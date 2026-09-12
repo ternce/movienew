@@ -63,9 +63,13 @@ const mocks = vi.hoisted(() => ({
   createPollAck: vi.fn(),
   socketState: {
     isConnected: false,
-    connectionState: "connecting" as const,
+    connectionState: "connecting",
+  } as {
+    isConnected: boolean;
+    connectionState: "connecting" | "connected" | "disconnected" | "error";
   },
   socketError: null as string | null,
+  requestSyncState: null as null | Record<string, unknown>,
   playerThrows: false,
   lastVideoPlayerProps: null as null | Record<string, unknown>,
   miniChatThrows: false,
@@ -281,7 +285,7 @@ vi.mock("@/hooks/use-watch-party-socket", async () => {
         isConnected: mocks.socketState.isConnected,
         connectionState: mocks.socketState.connectionState,
         requestState: () => okAck(buildRoom().playbackState),
-        requestSync: () => okAck(buildRoom().playbackState),
+        requestSync: () => okAck(mocks.requestSyncState || buildRoom().playbackState),
         emitPlay: () => okAck(buildRoom().playbackState),
         emitPause: () => okAck(buildRoom().playbackState),
         emitSeek: () => okAck(buildRoom().playbackState),
@@ -353,6 +357,7 @@ describe("WatchPartyJoinPage runtime safety", () => {
       connectionState: "connecting",
     };
     mocks.socketError = null;
+    mocks.requestSyncState = null;
     mocks.playerThrows = false;
     mocks.lastVideoPlayerProps = null;
     mocks.miniChatThrows = false;
@@ -462,6 +467,90 @@ describe("WatchPartyJoinPage runtime safety", () => {
         expect.objectContaining({
           playbackStatus: "PAUSED",
           currentTime: 5,
+        }),
+      );
+    });
+  });
+
+  it("manual synchronize applies a fresh PLAYING authoritative state to guests without authority emission", async () => {
+    const guestParticipant = {
+      userId: "user-guest",
+      displayName: "Guest User",
+      avatarUrl: null,
+      role: "PARTICIPANT",
+      connectionStatus: "ONLINE",
+      joinedAt: "2026-07-25T12:00:00.000Z",
+    };
+    mocks.user = { id: "user-guest", firstName: "Guest", lastName: "User" };
+    mocks.socketState = { isConnected: true, connectionState: "connected" };
+    mocks.requestSyncState = {
+      ...buildRoom().playbackState,
+      sequence: 7,
+      playbackStatus: "PLAYING",
+      currentTime: 5,
+      effectiveCurrentTime: 9,
+      serverTime: new Date().toISOString(),
+    };
+    mocks.apiPost.mockResolvedValueOnce({
+      success: true,
+      data: buildRoom({
+        currentParticipant: guestParticipant,
+        participants: [buildRoom().currentParticipant, guestParticipant],
+      }),
+    });
+
+    const view = renderJoinPage();
+    expect(await screen.findByTestId("watch-party-video-player")).toBeInTheDocument();
+
+    await userEvent.click(view.container.querySelector(".sesh-watch-party-sync-button") as HTMLElement);
+
+    await waitFor(() => {
+      expect(mocks.lastVideoPlayerProps?.remoteCommand).toEqual(
+        expect.objectContaining({
+          playbackStatus: "PLAYING",
+          currentTime: 9,
+        }),
+      );
+    });
+  });
+
+  it("manual synchronize snaps PAUSED authoritative state without turning it into play", async () => {
+    const guestParticipant = {
+      userId: "user-guest",
+      displayName: "Guest User",
+      avatarUrl: null,
+      role: "PARTICIPANT",
+      connectionStatus: "ONLINE",
+      joinedAt: "2026-07-25T12:00:00.000Z",
+    };
+    mocks.user = { id: "user-guest", firstName: "Guest", lastName: "User" };
+    mocks.socketState = { isConnected: true, connectionState: "connected" };
+    mocks.requestSyncState = {
+      ...buildRoom().playbackState,
+      sequence: 8,
+      playbackStatus: "PAUSED",
+      currentTime: 17,
+      effectiveCurrentTime: 22,
+      serverTime: new Date().toISOString(),
+    };
+    mocks.apiPost.mockResolvedValueOnce({
+      success: true,
+      data: buildRoom({
+        currentParticipant: guestParticipant,
+        participants: [buildRoom().currentParticipant, guestParticipant],
+      }),
+    });
+
+    const view = renderJoinPage();
+    expect(await screen.findByTestId("watch-party-video-player")).toBeInTheDocument();
+
+    await userEvent.click(view.container.querySelector(".sesh-watch-party-sync-button") as HTMLElement);
+
+    await waitFor(() => {
+      expect(mocks.lastVideoPlayerProps?.remoteCommand).toEqual(
+        expect.objectContaining({
+          playbackStatus: "PAUSED",
+          currentTime: 17,
         }),
       );
     });

@@ -22,18 +22,18 @@ vi.mock('@/stores/player.store', () => ({
   }),
 }));
 
-// Mock lucide-react icons
-vi.mock('lucide-react', () => ({
-  Volume: ({ className }: { className?: string }) => (
+// Mock player icons
+vi.mock('@phosphor-icons/react', () => ({
+  SpeakerNone: ({ className }: { className?: string }) => (
     <svg data-testid="icon-volume" className={className} />
   ),
-  Volume1: ({ className }: { className?: string }) => (
+  SpeakerLow: ({ className }: { className?: string }) => (
     <svg data-testid="icon-volume1" className={className} />
   ),
-  Volume2: ({ className }: { className?: string }) => (
+  SpeakerHigh: ({ className }: { className?: string }) => (
     <svg data-testid="icon-volume2" className={className} />
   ),
-  VolumeX: ({ className }: { className?: string }) => (
+  SpeakerSlash: ({ className }: { className?: string }) => (
     <svg data-testid="icon-volume-x" className={className} />
   ),
 }));

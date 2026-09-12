@@ -18,6 +18,7 @@ const storeActions = vi.hoisted(() => ({
   setEnded: vi.fn(),
   setError: vi.fn(),
   setAutoplayBlocked: vi.fn(),
+  setPlayPending: vi.fn(),
   setVolume: vi.fn(),
   setMuted: vi.fn(),
   setQuality: vi.fn(),
@@ -103,9 +104,10 @@ function installVideoState(
   Object.defineProperty(video, "play", {
     configurable: true,
     value: vi.fn(() => {
+      if (playImpl) return playImpl();
       state.paused = false;
       state.ended = false;
-      return playImpl?.() ?? Promise.resolve();
+      return Promise.resolve();
     }),
   });
   Object.defineProperty(video, "pause", {
@@ -134,16 +136,18 @@ function command(
 }
 
 function Harness({
+  src = "test.m3u8",
   remoteCommand,
   onPlaybackAction,
   onError,
 }: {
+  src?: string;
   remoteCommand?: PlaybackRemoteCommand | null;
   onPlaybackAction?: (action: PlaybackLocalAction) => void;
   onError?: (message: string) => void;
 }) {
-  const { videoRef, togglePlayPause, seek } = usePlayer({
-    src: "test.m3u8",
+  const { videoRef, togglePlayPause, retryBlockedAutoplay, seek } = usePlayer({
+    src,
     remoteCommand,
     onPlaybackAction,
     onError,
@@ -154,6 +158,9 @@ function Harness({
       <video ref={videoRef} data-testid="video" />
       <button type="button" onClick={togglePlayPause}>
         toggle
+      </button>
+      <button type="button" onClick={retryBlockedAutoplay}>
+        retry
       </button>
       <button type="button" onClick={() => seek(42)}>
         seek
@@ -169,6 +176,65 @@ describe("usePlayer Watch Party remote sync", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("keeps UI unconfirmed after play until the playing event fires", async () => {
+    let resolvePlay: () => void = () => undefined;
+    const playPromise = new Promise<void>((resolve) => {
+      resolvePlay = resolve;
+    });
+    render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 0,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 1,
+    };
+    installVideoState(video, state, () => playPromise);
+
+    await act(async () => {
+      screen.getByRole("button", { name: "toggle" }).click();
+    });
+    act(() => {
+      video.dispatchEvent(new Event("play"));
+    });
+
+    expect(video.play).toHaveBeenCalledTimes(1);
+    expect(storeActions.setPlayPending).toHaveBeenCalledWith(true);
+    expect(storeActions.play).not.toHaveBeenCalled();
+
+    await act(async () => {
+      state.paused = false;
+      resolvePlay();
+      await playPromise;
+      video.dispatchEvent(new Event("playing"));
+    });
+
+    expect(storeActions.play).toHaveBeenCalledTimes(1);
+    expect(storeActions.setAutoplayBlocked).toHaveBeenCalledWith(null);
+  });
+
+  it("does not confirm playback while video.play remains pending", async () => {
+    const playPromise = new Promise<void>(() => undefined);
+    render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    installVideoState(video, {
+      currentTime: 0,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 1,
+    }, () => playPromise);
+
+    await act(async () => {
+      screen.getByRole("button", { name: "toggle" }).click();
+    });
+
+    expect(video.play).toHaveBeenCalledTimes(1);
+    expect(storeActions.setPlayPending).toHaveBeenCalledWith(true);
+    expect(storeActions.play).not.toHaveBeenCalled();
   });
 
   it("applies host play to a guest media element", async () => {
@@ -505,6 +571,144 @@ describe("usePlayer Watch Party remote sync", () => {
     expect(storeActions.setAutoplayBlocked).toHaveBeenCalledWith("Tap to synchronize playback");
     expect(storeActions.setError).not.toHaveBeenCalledWith("Tap to synchronize playback");
     expect(onError).not.toHaveBeenCalled();
+    expect(state.paused).toBe(true);
+  });
+
+  it("retries a blocked authoritative play with a fresh server-time target", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-27T12:00:00.000Z"));
+    const onPlaybackAction = vi.fn();
+    const blocked = new DOMException("gesture required", "NotAllowedError");
+    let attempt = 0;
+    const { rerender } = render(
+      <Harness remoteCommand={null} onPlaybackAction={onPlaybackAction} />,
+    );
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 0,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 1,
+    };
+    installVideoState(video, state, () => {
+      attempt += 1;
+      return attempt === 1 ? Promise.reject(blocked) : Promise.resolve();
+    });
+
+    rerender(
+      <Harness
+        remoteCommand={command(21, "PLAYING", 5, "play", {
+          authoritativeCurrentTime: 5,
+          serverTime: "2026-08-27T12:00:00.000Z",
+          serverClockOffsetMs: 0,
+        })}
+        onPlaybackAction={onPlaybackAction}
+      />,
+    );
+    await act(async () => {});
+
+    expect(storeActions.setAutoplayBlocked).toHaveBeenCalledWith("Tap to synchronize playback");
+    expect(state.currentTime).toBe(5);
+
+    vi.setSystemTime(new Date("2026-08-27T12:00:04.000Z"));
+    await act(async () => {
+      screen.getByRole("button", { name: "retry" }).click();
+    });
+
+    expect(video.play).toHaveBeenCalledTimes(2);
+    expect(state.currentTime).toBe(9);
+    expect(onPlaybackAction).not.toHaveBeenCalled();
+
+    act(() => {
+      state.paused = false;
+      video.dispatchEvent(new Event("playing"));
+    });
+
+    expect(storeActions.play).toHaveBeenCalled();
+    expect(storeActions.setAutoplayBlocked).toHaveBeenLastCalledWith(null);
+  });
+
+  it("does not retry a blocked play after a newer authoritative pause", async () => {
+    const blocked = new DOMException("gesture required", "NotAllowedError");
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 0,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 1,
+    };
+    installVideoState(video, state, () => Promise.reject(blocked));
+
+    rerender(<Harness remoteCommand={command(30, "PLAYING", 5, "play")} />);
+    await act(async () => {});
+    rerender(<Harness remoteCommand={command(31, "PAUSED", 6, "pause")} />);
+    await act(async () => {});
+
+    await act(async () => {
+      screen.getByRole("button", { name: "retry" }).click();
+    });
+
+    expect(video.play).toHaveBeenCalledTimes(1);
+    expect(state.paused).toBe(true);
+    expect(storeActions.setPlayPending).toHaveBeenCalledWith(false);
+  });
+
+  it("invalidates blocked authoritative play when the media source changes", async () => {
+    const blocked = new DOMException("gesture required", "NotAllowedError");
+    const { rerender } = render(<Harness src="first.m3u8" remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 0,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 1,
+    };
+    installVideoState(video, state, () => Promise.reject(blocked));
+
+    rerender(<Harness src="first.m3u8" remoteCommand={command(32, "PLAYING", 5, "play")} />);
+    await act(async () => {});
+    rerender(<Harness src="second.m3u8" remoteCommand={null} />);
+
+    await act(async () => {
+      screen.getByRole("button", { name: "retry" }).click();
+    });
+
+    expect(video.play).toHaveBeenCalledTimes(1);
+    expect(storeActions.setAutoplayBlocked).toHaveBeenCalledWith(null);
+  });
+
+  it("prevents an old play completion from beating a newer pause", async () => {
+    let resolvePlay: () => void = () => undefined;
+    const playPromise = new Promise<void>((resolve) => {
+      resolvePlay = resolve;
+    });
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 0,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 1,
+    };
+    installVideoState(video, state, () => playPromise);
+
+    rerender(<Harness remoteCommand={command(40, "PLAYING", 10, "play")} />);
+    rerender(<Harness remoteCommand={command(41, "PAUSED", 10, "pause")} />);
+
+    await act(async () => {
+      state.paused = false;
+      resolvePlay();
+      await playPromise;
+      video.dispatchEvent(new Event("playing"));
+    });
+
+    expect(video.pause).toHaveBeenCalled();
+    expect(storeActions.play).not.toHaveBeenCalled();
   });
 
   it("clears stale recoverable and fatal player state after successful media lifecycle events", () => {
