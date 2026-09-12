@@ -55,6 +55,9 @@ const PAUSED_DRIFT_EPSILON_SECONDS = 0.025;
 const SOFT_CORRECTION_RATE_DELTA = 0.03;
 const SOFT_CORRECTION_DURATION_MS = 1600;
 const ENDED_REPLAY_EPSILON_SECONDS = 0.5;
+const PLAYING_DRIFT_SOFT_SECONDS = 0.5;
+const PLAYING_DRIFT_STRONG_SOFT_SECONDS = 1.25;
+const STRONG_SOFT_CORRECTION_RATE_DELTA = 0.055;
 
 function getRemotePlaybackStatus(command: PlaybackRemoteCommand) {
   if (command.type === "play") return "PLAYING";
@@ -127,6 +130,42 @@ type RemoteStartupCommand = {
   sourceVersion: number;
 };
 
+type SyncCorrectionType = "IGNORE" | "SOFT" | "STRONG_SOFT" | "HARD";
+
+function getCorrectionReason(command: PlaybackRemoteCommand) {
+  const id = String(command.id);
+  if (id.includes(":sync:")) return "sync";
+  if (id.includes(":state:")) return "passive-state";
+  return command.type;
+}
+
+function logSyncCorrection(details: {
+  reason: string;
+  type: SyncCorrectionType;
+  local: number;
+  target: number;
+  drift: number;
+  rateBefore: number;
+  rateAfter: number;
+  command: PlaybackRemoteCommand;
+}) {
+  if (process.env.NODE_ENV === "production") return;
+  // eslint-disable-next-line no-console
+  console.debug(
+    "[WP Sync]",
+    `reason=${details.reason}`,
+    `type=${details.type}`,
+    `driftMs=${Math.round(Math.abs(details.drift) * 1000)}`,
+    `local=${details.local.toFixed(3)}`,
+    `target=${details.target.toFixed(3)}`,
+    `rate=${details.rateAfter.toFixed(3)}`,
+    `rateBefore=${details.rateBefore.toFixed(3)}`,
+    `sequence=${String(details.command.id).split(":")[0]}`,
+    `status=${getRemotePlaybackStatus(details.command) || "unknown"}`,
+    `at=${new Date().toISOString()}`,
+  );
+}
+
 /**
  * HLS.js video player hook
  * Handles all video playback logic and syncs with Zustand store
@@ -156,6 +195,7 @@ export function usePlayer({
   const pendingRemoteCommandRef = useRef<PlaybackRemoteCommand | null>(null);
   const remoteStartupCommandRef = useRef<RemoteStartupCommand | null>(null);
   const sourceVersionRef = useRef(0);
+  const softCorrectionBaseRateRef = useRef<number | null>(null);
   const softCorrectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -207,6 +247,7 @@ export function usePlayer({
     hideControls,
     updateActivity,
     isPlaying,
+    isSettingsOpen,
     volume,
     isMuted,
     playbackSpeed,
@@ -221,33 +262,37 @@ export function usePlayer({
         softCorrectionTimerRef.current = null;
       }
 
+      const targetRate = playbackRate ?? softCorrectionBaseRateRef.current;
       const video = videoRef.current;
       if (
         video &&
-        typeof playbackRate === "number" &&
-        playbackRate > 0 &&
-        video.playbackRate !== playbackRate
+        typeof targetRate === "number" &&
+        targetRate > 0 &&
+        video.playbackRate !== targetRate
       ) {
-        video.playbackRate = playbackRate;
+        video.playbackRate = targetRate;
       }
+      softCorrectionBaseRateRef.current = null;
     },
     [],
   );
 
   const applySoftCorrection = useCallback(
-    (baseRate: number, drift: number) => {
+    (baseRate: number, drift: number, rateDelta = SOFT_CORRECTION_RATE_DELTA) => {
       const video = videoRef.current;
       if (!video) return;
 
       clearSoftCorrection();
+      softCorrectionBaseRateRef.current = baseRate;
       const correctionRate =
-        baseRate * (drift > 0 ? 1 + SOFT_CORRECTION_RATE_DELTA : 1 - SOFT_CORRECTION_RATE_DELTA);
+        baseRate * (drift > 0 ? 1 + rateDelta : 1 - rateDelta);
       video.playbackRate = Math.max(0.1, correctionRate);
       softCorrectionTimerRef.current = setTimeout(() => {
         if (videoRef.current === video) {
           video.playbackRate = baseRate;
         }
         softCorrectionTimerRef.current = null;
+        softCorrectionBaseRateRef.current = null;
       }, SOFT_CORRECTION_DURATION_MS);
     },
     [clearSoftCorrection],
@@ -260,6 +305,7 @@ export function usePlayer({
 
       const targetTime = Number(getCommandTargetTime(command));
       const playbackRate = getCommandPlaybackRate(command);
+      const rateBefore = video.playbackRate || playbackRate;
       video.playbackRate = playbackRate;
 
       if (!Number.isFinite(targetTime)) return;
@@ -271,13 +317,76 @@ export function usePlayer({
         setEnded(false);
       }
 
-      const drift = Math.abs(video.currentTime - nextTime);
-      if (forceSnap || drift > PLAYING_DRIFT_HARD_SECONDS || video.ended) {
+      const localTime = video.currentTime;
+      const drift = nextTime - localTime;
+      const absDrift = Math.abs(drift);
+      const reason = getCorrectionReason(command);
+      const isPassiveHealthyPlayback =
+        command.type === "state" && !forceSnap && !video.ended;
+
+      if (isPassiveHealthyPlayback && video.readyState < 3 && absDrift <= PLAYING_DRIFT_STRONG_SOFT_SECONDS) {
+        logSyncCorrection({
+          reason,
+          type: "IGNORE",
+          local: localTime,
+          target: nextTime,
+          drift,
+          rateBefore,
+          rateAfter: video.playbackRate || playbackRate,
+          command,
+        });
+        return;
+      }
+
+      if (forceSnap || absDrift > PLAYING_DRIFT_STRONG_SOFT_SECONDS || video.ended) {
         clearSoftCorrection(playbackRate);
         video.currentTime = nextTime;
         setCurrentTime(video.currentTime);
-      } else if (drift > PLAYING_DRIFT_IGNORE_SECONDS) {
-        applySoftCorrection(playbackRate, nextTime - video.currentTime);
+        logSyncCorrection({
+          reason,
+          type: "HARD",
+          local: localTime,
+          target: nextTime,
+          drift,
+          rateBefore,
+          rateAfter: video.playbackRate || playbackRate,
+          command,
+        });
+      } else if (absDrift > PLAYING_DRIFT_SOFT_SECONDS) {
+        applySoftCorrection(playbackRate, drift, STRONG_SOFT_CORRECTION_RATE_DELTA);
+        logSyncCorrection({
+          reason,
+          type: "STRONG_SOFT",
+          local: localTime,
+          target: nextTime,
+          drift,
+          rateBefore,
+          rateAfter: video.playbackRate,
+          command,
+        });
+      } else if (absDrift > PLAYING_DRIFT_IGNORE_SECONDS) {
+        applySoftCorrection(playbackRate, drift);
+        logSyncCorrection({
+          reason,
+          type: "SOFT",
+          local: localTime,
+          target: nextTime,
+          drift,
+          rateBefore,
+          rateAfter: video.playbackRate,
+          command,
+        });
+      } else {
+        logSyncCorrection({
+          reason,
+          type: "IGNORE",
+          local: localTime,
+          target: nextTime,
+          drift,
+          rateBefore,
+          rateAfter: video.playbackRate || playbackRate,
+          command,
+        });
       }
     },
     [applySoftCorrection, clearSoftCorrection, setCurrentTime, setEnded],
@@ -321,17 +430,7 @@ export function usePlayer({
             setCurrentTime(video.currentTime);
           }
         } else if (status === "PLAYING") {
-          if (
-            drift > PLAYING_DRIFT_HARD_SECONDS ||
-            video.ended ||
-            command.type === "play"
-          ) {
-            clearSoftCorrection(playbackRate);
-            video.currentTime = nextTime;
-            setCurrentTime(video.currentTime);
-          } else if (drift > PLAYING_DRIFT_IGNORE_SECONDS) {
-            applySoftCorrection(playbackRate, nextTime - video.currentTime);
-          }
+          reconcilePlayingToRemoteTarget(command, command.type === "play");
         } else if (drift > PLAYING_DRIFT_HARD_SECONDS || video.ended) {
           clearSoftCorrection(playbackRate);
           video.currentTime = nextTime;
@@ -388,8 +487,8 @@ export function usePlayer({
       }
     },
     [
-      applySoftCorrection,
       clearSoftCorrection,
+      reconcilePlayingToRemoteTarget,
       setAutoplayBlocked,
       setCurrentTime,
       setEnded,
@@ -619,7 +718,7 @@ export function usePlayer({
       }
       controlsTimeoutRef.current = setTimeout(() => {
         const currentVideo = videoRef.current;
-        if (currentVideo && !currentVideo.paused && !currentVideo.ended) {
+        if (currentVideo && !currentVideo.paused && !currentVideo.ended && !usePlayerStore.getState().isSettingsOpen) {
           hideControls();
         }
       }, 3000);
@@ -813,7 +912,7 @@ export function usePlayer({
     if (!isControlsVisible) return;
 
     controlsTimeoutRef.current = setTimeout(() => {
-      if (isPlaying) {
+      if (isPlaying && !isSettingsOpen) {
         hideControls();
       }
     }, 3000);
@@ -823,7 +922,7 @@ export function usePlayer({
         clearTimeout(controlsTimeoutRef.current);
       }
     };
-  }, [isControlsVisible, isPlaying, hideControls]);
+  }, [isControlsVisible, isPlaying, isSettingsOpen, hideControls]);
 
   // Quality change handler
   // Uses nextLevel for manual selection (smooth switch without buffer flush)
@@ -865,6 +964,7 @@ export function usePlayer({
       const video = videoRef.current;
       if (!video) return;
 
+      clearSoftCorrection(video.playbackRate || playbackSpeed);
       video.currentTime = getClampedPlaybackTime(video, time);
       setCurrentTime(video.currentTime);
       if (
@@ -879,7 +979,7 @@ export function usePlayer({
         });
       }
     },
-    [onPlaybackAction, setCurrentTime],
+    [clearSoftCorrection, onPlaybackAction, playbackSpeed, setCurrentTime],
   );
 
   // Toggle play/pause

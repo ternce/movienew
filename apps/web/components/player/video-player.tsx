@@ -99,7 +99,15 @@ export function VideoPlayer({
     visible: false,
   });
 
-  const { isControlsVisible, setSettingsOpen, updateActivity, reset } =
+  const {
+    isPlaying,
+    isControlsVisible,
+    isSettingsOpen,
+    autoplayBlockedMessage,
+    setSettingsOpen,
+    updateActivity,
+    reset,
+  } =
     usePlayerStore();
 
   const {
@@ -232,6 +240,9 @@ export function VideoPlayer({
     e.preventDefault();
   }, []);
 
+  const isCinematicIdle =
+    isPlaying && !isControlsVisible && !isSettingsOpen && !autoplayBlockedMessage;
+
   return (
     <div
       ref={containerRef}
@@ -239,6 +250,7 @@ export function VideoPlayer({
       className={cn(
         "relative w-full aspect-video bg-black overflow-hidden group",
         "select-none touch-manipulation",
+        isCinematicIdle && "cursor-none",
         className,
       )}
       onPointerMove={handlePointerMove}

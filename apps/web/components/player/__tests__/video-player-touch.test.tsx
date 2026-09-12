@@ -24,6 +24,9 @@ vi.mock('@/components/player/use-player', () => ({
 
 // Mock player store
 let mockIsControlsVisible = true;
+let mockIsPlaying = false;
+let mockIsSettingsOpen = false;
+let mockAutoplayBlockedMessage: string | null = null;
 const mockSetSettingsOpen = vi.fn();
 const mockUpdateActivity = vi.fn();
 const mockReset = vi.fn();
@@ -32,7 +35,10 @@ let mockCurrentTime = 30;
 vi.mock('@/stores/player.store', () => ({
   usePlayerStore: Object.assign(
     () => ({
+      isPlaying: mockIsPlaying,
       isControlsVisible: mockIsControlsVisible,
+      isSettingsOpen: mockIsSettingsOpen,
+      autoplayBlockedMessage: mockAutoplayBlockedMessage,
       setSettingsOpen: mockSetSettingsOpen,
       updateActivity: mockUpdateActivity,
       reset: mockReset,
@@ -71,6 +77,9 @@ describe('VideoPlayer touch gestures', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     mockIsControlsVisible = true;
+    mockIsPlaying = false;
+    mockIsSettingsOpen = false;
+    mockAutoplayBlockedMessage = null;
     mockCurrentTime = 30;
   });
 
@@ -226,6 +235,44 @@ describe('VideoPlayer touch gestures', () => {
   });
 
   describe('Container attributes', () => {
+    it('should hide the cursor in cinematic idle playback', () => {
+      mockIsPlaying = true;
+      mockIsControlsVisible = false;
+      const { container } = render(<VideoPlayer src="test.m3u8" />);
+      const playerContainer = container.querySelector('[data-player-container]');
+
+      expect(playerContainer?.className).toContain('cursor-none');
+    });
+
+    it('should keep the cursor visible while paused', () => {
+      mockIsPlaying = false;
+      mockIsControlsVisible = true;
+      const { container } = render(<VideoPlayer src="test.m3u8" />);
+      const playerContainer = container.querySelector('[data-player-container]');
+
+      expect(playerContainer?.className).not.toContain('cursor-none');
+    });
+
+    it('should keep the cursor visible when settings are open', () => {
+      mockIsPlaying = true;
+      mockIsControlsVisible = false;
+      mockIsSettingsOpen = true;
+      const { container } = render(<VideoPlayer src="test.m3u8" />);
+      const playerContainer = container.querySelector('[data-player-container]');
+
+      expect(playerContainer?.className).not.toContain('cursor-none');
+    });
+
+    it('should keep the cursor visible for autoplay recovery', () => {
+      mockIsPlaying = true;
+      mockIsControlsVisible = false;
+      mockAutoplayBlockedMessage = 'Нажмите, чтобы синхронизировать воспроизведение';
+      const { container } = render(<VideoPlayer src="test.m3u8" />);
+      const playerContainer = container.querySelector('[data-player-container]');
+
+      expect(playerContainer?.className).not.toContain('cursor-none');
+    });
+
     it('should restore controls on pointer activity', () => {
       mockIsControlsVisible = false;
       const { container } = render(<VideoPlayer src="test.m3u8" />);

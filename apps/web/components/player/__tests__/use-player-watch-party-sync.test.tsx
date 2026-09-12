@@ -32,6 +32,11 @@ const storeActions = vi.hoisted(() => ({
   updateActivity: vi.fn(),
 }));
 
+const storeState = vi.hoisted(() => ({
+  isPlaying: false,
+  isSettingsOpen: false,
+}));
+
 vi.mock("hls.js", () => ({
   default: {
     isSupported: () => false,
@@ -39,15 +44,23 @@ vi.mock("hls.js", () => ({
 }));
 
 vi.mock("@/stores/player.store", () => ({
-  usePlayerStore: () => ({
-    ...storeActions,
-    isPlaying: false,
-    volume: 1,
-    isMuted: false,
-    playbackSpeed: 1,
-    isFullscreen: false,
-    isControlsVisible: true,
-  }),
+  usePlayerStore: Object.assign(
+    () => ({
+      ...storeActions,
+      isPlaying: storeState.isPlaying,
+      volume: 1,
+      isMuted: false,
+      playbackSpeed: 1,
+      isFullscreen: false,
+      isControlsVisible: true,
+      isSettingsOpen: storeState.isSettingsOpen,
+    }),
+    {
+      getState: () => ({
+        isSettingsOpen: storeState.isSettingsOpen,
+      }),
+    },
+  ),
 }));
 
 type VideoState = {
@@ -174,10 +187,14 @@ function Harness({
 describe("usePlayer Watch Party remote sync", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    storeState.isPlaying = false;
+    storeState.isSettingsOpen = false;
+    vi.spyOn(console, "debug").mockImplementation(() => undefined);
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("keeps UI unconfirmed after play until the playing event fires", async () => {
@@ -291,6 +308,29 @@ describe("usePlayer Watch Party remote sync", () => {
     });
 
     expect(storeActions.pause).toHaveBeenCalled();
+    expect(storeActions.hideControls).not.toHaveBeenCalled();
+  });
+
+  it("does not hide controls while settings are open", () => {
+    vi.useFakeTimers();
+    storeState.isSettingsOpen = true;
+    render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 0,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 3,
+    };
+    installVideoState(video, state);
+
+    act(() => {
+      video.dispatchEvent(new Event("playing"));
+      vi.advanceTimersByTime(3000);
+    });
+
+    expect(storeActions.play).toHaveBeenCalled();
     expect(storeActions.hideControls).not.toHaveBeenCalled();
   });
 
@@ -546,7 +586,7 @@ describe("usePlayer Watch Party remote sync", () => {
     await act(async () => {});
     expect(state.currentTime).toBe(12);
 
-    vi.setSystemTime(new Date("2026-08-27T12:00:01.250Z"));
+    vi.setSystemTime(new Date("2026-08-27T12:00:01.300Z"));
     await act(async () => {
       state.paused = false;
       resolvePlay();
@@ -554,8 +594,8 @@ describe("usePlayer Watch Party remote sync", () => {
       video.dispatchEvent(new Event("playing"));
     });
 
-    expect(state.currentTime).toBe(13.25);
-    expect(storeActions.setCurrentTime).toHaveBeenLastCalledWith(13.25);
+    expect(state.currentTime).toBe(13.3);
+    expect(storeActions.setCurrentTime).toHaveBeenLastCalledWith(13.3);
   });
 
   it("uses soft playback-rate correction for medium playing drift", async () => {
@@ -567,7 +607,7 @@ describe("usePlayer Watch Party remote sync", () => {
       duration: 120,
       paused: false,
       ended: false,
-      readyState: 1,
+      readyState: 3,
       playbackRate: 1,
     };
     installVideoState(video, state);
@@ -585,6 +625,122 @@ describe("usePlayer Watch Party remote sync", () => {
     expect(state.playbackRate).toBe(1);
   });
 
+  it("ignores tiny playing drift without seeking or rate correction", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 3,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+    vi.clearAllMocks();
+
+    rerender(<Harness remoteCommand={command(50, "PLAYING", 10.1)} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(10);
+    expect(state.playbackRate).toBe(1);
+    expect(storeActions.setCurrentTime).not.toHaveBeenCalled();
+    expect(video.play).not.toHaveBeenCalled();
+    expect(video.pause).not.toHaveBeenCalled();
+  });
+
+  it("uses soft speed-up when the guest is slightly behind", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 3,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+    vi.clearAllMocks();
+
+    rerender(<Harness remoteCommand={command(51, "PLAYING", 10.3)} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(10);
+    expect(state.playbackRate).toBeCloseTo(1.03);
+    expect(storeActions.setCurrentTime).not.toHaveBeenCalled();
+    expect(video.play).not.toHaveBeenCalled();
+    expect(video.pause).not.toHaveBeenCalled();
+  });
+
+  it("uses soft slow-down when the guest is slightly ahead", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10.3,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 3,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+    vi.clearAllMocks();
+
+    rerender(<Harness remoteCommand={command(52, "PLAYING", 10)} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(10.3);
+    expect(state.playbackRate).toBeCloseTo(0.97);
+    expect(storeActions.setCurrentTime).not.toHaveBeenCalled();
+    expect(video.play).not.toHaveBeenCalled();
+    expect(video.pause).not.toHaveBeenCalled();
+  });
+
+  it("uses strong soft speed-up for medium behind drift", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 3,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+    vi.clearAllMocks();
+
+    rerender(<Harness remoteCommand={command(53, "PLAYING", 10.8)} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(10);
+    expect(state.playbackRate).toBeCloseTo(1.055);
+    expect(storeActions.setCurrentTime).not.toHaveBeenCalled();
+  });
+
+  it("uses strong soft slow-down for medium ahead drift", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10.8,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 3,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+    vi.clearAllMocks();
+
+    rerender(<Harness remoteCommand={command(54, "PLAYING", 10)} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(10.8);
+    expect(state.playbackRate).toBeCloseTo(0.945);
+    expect(storeActions.setCurrentTime).not.toHaveBeenCalled();
+  });
+
   it("hard-corrects large playing drift", async () => {
     const { rerender } = render(<Harness remoteCommand={null} />);
     const video = screen.getByTestId("video") as HTMLVideoElement;
@@ -593,15 +749,15 @@ describe("usePlayer Watch Party remote sync", () => {
       duration: 120,
       paused: false,
       ended: false,
-      readyState: 1,
+      readyState: 3,
       playbackRate: 1,
     };
     installVideoState(video, state);
 
-    rerender(<Harness remoteCommand={command(11, "PLAYING", 11)} />);
+    rerender(<Harness remoteCommand={command(11, "PLAYING", 11.5)} />);
     await act(async () => {});
 
-    expect(state.currentTime).toBe(11);
+    expect(state.currentTime).toBe(11.5);
     expect(state.playbackRate).toBe(1);
   });
 
@@ -614,7 +770,7 @@ describe("usePlayer Watch Party remote sync", () => {
       duration: 120,
       paused: false,
       ended: false,
-      readyState: 1,
+      readyState: 3,
       playbackRate: 1,
     };
     installVideoState(video, state);
@@ -629,6 +785,87 @@ describe("usePlayer Watch Party remote sync", () => {
     expect(state.currentTime).toBe(10.4);
     expect(state.playbackRate).toBe(1);
     expect(state.paused).toBe(true);
+  });
+
+  it("cancels soft correction when a seek arrives", async () => {
+    vi.useFakeTimers();
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 3,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+
+    rerender(<Harness remoteCommand={command(55, "PLAYING", 10.4)} />);
+    await act(async () => {});
+    expect(state.playbackRate).toBeGreaterThan(1);
+
+    rerender(<Harness remoteCommand={command(56, "PAUSED", 22, "seek")} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(22);
+    expect(state.playbackRate).toBe(1);
+  });
+
+  it("cancels soft correction when the media source changes", async () => {
+    vi.useFakeTimers();
+    const { rerender } = render(<Harness src="first.m3u8" remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 3,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+
+    rerender(<Harness src="first.m3u8" remoteCommand={command(58, "PLAYING", 10.4)} />);
+    await act(async () => {});
+    expect(state.playbackRate).toBeGreaterThan(1);
+
+    rerender(<Harness src="second.m3u8" remoteCommand={null} />);
+    expect(state.playbackRate).toBe(1);
+
+    act(() => {
+      state.playbackRate = 1.1;
+      vi.advanceTimersByTime(1600);
+    });
+
+    expect(state.playbackRate).toBe(1.1);
+  });
+
+  it("does not hard-correct moderate drift while buffering", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 2,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+    vi.clearAllMocks();
+
+    act(() => {
+      video.dispatchEvent(new Event("waiting"));
+    });
+    rerender(<Harness remoteCommand={command(57, "PLAYING", 10.8)} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(10);
+    expect(state.playbackRate).toBe(1);
+    expect(storeActions.setCurrentTime).not.toHaveBeenCalled();
+    expect(video.play).not.toHaveBeenCalled();
+    expect(video.pause).not.toHaveBeenCalled();
   });
 
   it("hard-corrects even small drift when seeking", async () => {
