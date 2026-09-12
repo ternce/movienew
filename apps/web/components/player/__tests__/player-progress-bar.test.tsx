@@ -28,6 +28,18 @@ vi.mock('@/lib/utils', () => ({
 describe('PlayerProgressBar', () => {
   const mockOnSeek = vi.fn();
 
+  function renderProgressBar() {
+    mockDuration = 100;
+    const view = render(<PlayerProgressBar onSeek={mockOnSeek} />);
+    const progressBar = view.container.querySelector('.touch-none') as HTMLElement;
+    expect(progressBar).toBeInTheDocument();
+    Object.defineProperty(progressBar, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 0, width: 200, top: 0, height: 44, right: 200, bottom: 44 }),
+    });
+    return { ...view, progressBar };
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockCurrentTime = 0;
@@ -106,38 +118,93 @@ describe('PlayerProgressBar', () => {
 
   describe('Touch interaction', () => {
     it('should call onSeek on touchstart', () => {
-      mockDuration = 100;
-      const { container } = render(<PlayerProgressBar onSeek={mockOnSeek} />);
-      const progressBar = container.querySelector('.touch-none');
-      expect(progressBar).toBeInTheDocument();
+      const { progressBar } = renderProgressBar();
 
-      // Simulate touchstart with getBoundingClientRect mock
-      Object.defineProperty(progressBar!, 'getBoundingClientRect', {
-        value: () => ({ left: 0, width: 200, top: 0, height: 44, right: 200, bottom: 44 }),
-      });
-
-      fireEvent.touchStart(progressBar!, {
+      fireEvent.touchStart(progressBar, {
         touches: [{ clientX: 100 }],
       });
 
-      expect(mockOnSeek).toHaveBeenCalled();
+      expect(mockOnSeek).toHaveBeenCalledWith(50, { silent: true });
+    });
+
+    it('should commit one final seek on touchend without per-move committed seeks', () => {
+      const { progressBar } = renderProgressBar();
+
+      fireEvent.touchStart(progressBar, {
+        touches: [{ clientX: 20 }],
+      });
+      fireEvent.touchMove(window, {
+        touches: [{ clientX: 80 }],
+      });
+      fireEvent.touchMove(window, {
+        touches: [{ clientX: 120 }],
+      });
+
+      expect(mockOnSeek).toHaveBeenCalledTimes(3);
+      expect(mockOnSeek).toHaveBeenNthCalledWith(1, 10, { silent: true });
+      expect(mockOnSeek).toHaveBeenNthCalledWith(2, 40, { silent: true });
+      expect(mockOnSeek).toHaveBeenNthCalledWith(3, 60, { silent: true });
+
+      fireEvent.touchEnd(window, {
+        changedTouches: [{ clientX: 160 }],
+      });
+
+      expect(mockOnSeek).toHaveBeenCalledTimes(4);
+      expect(mockOnSeek).toHaveBeenLastCalledWith(80);
     });
   });
 
   describe('Click interaction', () => {
     it('should call onSeek on click', () => {
-      mockDuration = 100;
-      const { container } = render(<PlayerProgressBar onSeek={mockOnSeek} />);
-      const progressBar = container.querySelector('.touch-none');
-      expect(progressBar).toBeInTheDocument();
+      const { progressBar } = renderProgressBar();
 
-      Object.defineProperty(progressBar!, 'getBoundingClientRect', {
-        value: () => ({ left: 0, width: 200, top: 0, height: 44, right: 200, bottom: 44 }),
-      });
+      fireEvent.click(progressBar, { clientX: 50 });
 
-      fireEvent.click(progressBar!, { clientX: 50 });
+      expect(mockOnSeek).toHaveBeenCalledTimes(1);
+      expect(mockOnSeek).toHaveBeenCalledWith(25);
+    });
 
-      expect(mockOnSeek).toHaveBeenCalled();
+    it('should commit exactly once for a mouse press and release', () => {
+      const { progressBar } = renderProgressBar();
+
+      fireEvent.mouseDown(progressBar, { clientX: 50 });
+      fireEvent.mouseUp(window, { clientX: 150 });
+      fireEvent.click(progressBar, { clientX: 150 });
+
+      expect(mockOnSeek).toHaveBeenCalledTimes(2);
+      expect(mockOnSeek).toHaveBeenNthCalledWith(1, 25, { silent: true });
+      expect(mockOnSeek).toHaveBeenNthCalledWith(2, 75);
+    });
+  });
+
+  describe('Drag interaction', () => {
+    it('should preview during drag and commit exactly once on release', () => {
+      const { progressBar } = renderProgressBar();
+
+      fireEvent.mouseDown(progressBar, { clientX: 20 });
+      fireEvent.mouseMove(window, { clientX: 80 });
+      fireEvent.mouseMove(window, { clientX: 120 });
+
+      expect(mockOnSeek).toHaveBeenCalledTimes(3);
+      expect(mockOnSeek).toHaveBeenNthCalledWith(1, 10, { silent: true });
+      expect(mockOnSeek).toHaveBeenNthCalledWith(2, 40, { silent: true });
+      expect(mockOnSeek).toHaveBeenNthCalledWith(3, 60, { silent: true });
+
+      fireEvent.mouseUp(window, { clientX: 160 });
+
+      expect(mockOnSeek).toHaveBeenCalledTimes(4);
+      expect(mockOnSeek).toHaveBeenLastCalledWith(80);
+    });
+
+    it('should commit the clamped final value when released outside the bar', () => {
+      const { progressBar } = renderProgressBar();
+
+      fireEvent.mouseDown(progressBar, { clientX: 20 });
+      fireEvent.mouseMove(window, { clientX: 120 });
+      fireEvent.mouseUp(window, { clientX: 260 });
+
+      expect(mockOnSeek).toHaveBeenCalledTimes(3);
+      expect(mockOnSeek).toHaveBeenLastCalledWith(100);
     });
   });
 

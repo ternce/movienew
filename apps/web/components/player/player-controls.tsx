@@ -22,7 +22,7 @@ interface PlayerControlsProps {
   title?: string;
   /** Explicit play/pause intent. The media element, not Zustand, is authoritative. */
   onPlayPause: () => void;
-  onSeek: (time: number) => void;
+  onSeek: (time: number, options?: { silent?: boolean }) => void;
   onQualityChange: (quality: VideoQuality) => void;
   onToggleFullscreen: () => void;
   onTogglePiP?: () => void;

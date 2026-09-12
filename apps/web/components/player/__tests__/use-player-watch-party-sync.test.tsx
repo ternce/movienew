@@ -237,6 +237,53 @@ describe("usePlayer Watch Party remote sync", () => {
     expect(storeActions.play).not.toHaveBeenCalled();
   });
 
+  it("clears pending state and confirms playback when media starts", async () => {
+    render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 0,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 3,
+    };
+    installVideoState(video, state);
+
+    act(() => {
+      video.dispatchEvent(new Event("play"));
+    });
+    expect(storeActions.setPlayPending).toHaveBeenCalledWith(true);
+    expect(storeActions.play).not.toHaveBeenCalled();
+
+    act(() => {
+      video.dispatchEvent(new Event("playing"));
+    });
+
+    expect(storeActions.play).toHaveBeenCalledTimes(1);
+    expect(storeActions.setAutoplayBlocked).toHaveBeenLastCalledWith(null);
+  });
+
+  it("uses an advancing timeupdate as playback confirmation when playing is missed", () => {
+    render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 1,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 3,
+    };
+    installVideoState(video, state);
+
+    act(() => {
+      video.dispatchEvent(new Event("play"));
+      video.dispatchEvent(new Event("timeupdate"));
+    });
+
+    expect(storeActions.setPlayPending).toHaveBeenCalledWith(true);
+    expect(storeActions.play).toHaveBeenCalledTimes(1);
+  });
+
   it("applies host play to a guest media element", async () => {
     const { rerender } = render(<Harness remoteCommand={null} />);
     const video = screen.getByTestId("video") as HTMLVideoElement;
@@ -351,6 +398,133 @@ describe("usePlayer Watch Party remote sync", () => {
 
     expect(state.currentTime).toBe(3);
     expect(state.paused).toBe(false);
+  });
+
+  it("recomputes delayed remote play target when media actually starts", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-27T12:00:00.000Z"));
+    let resolvePlay: () => void = () => undefined;
+    const playPromise = new Promise<void>((resolve) => {
+      resolvePlay = resolve;
+    });
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 0,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 1,
+    };
+    installVideoState(video, state, () => playPromise);
+
+    rerender(
+      <Harness
+        remoteCommand={command(22, "PLAYING", 5, "play", {
+          authoritativeCurrentTime: 5,
+          serverTime: "2026-08-27T12:00:00.000Z",
+          serverClockOffsetMs: 0,
+        })}
+      />,
+    );
+    await act(async () => {});
+    expect(state.currentTime).toBe(5);
+
+    vi.setSystemTime(new Date("2026-08-27T12:00:02.000Z"));
+    await act(async () => {
+      state.paused = false;
+      resolvePlay();
+      await playPromise;
+      video.dispatchEvent(new Event("playing"));
+    });
+
+    expect(state.currentTime).toBe(7);
+    expect(storeActions.play).toHaveBeenCalled();
+  });
+
+  it("does not hard snap below the ignore threshold when remote play starts", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-27T12:00:00.000Z"));
+    let resolvePlay: () => void = () => undefined;
+    const playPromise = new Promise<void>((resolve) => {
+      resolvePlay = resolve;
+    });
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 0,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 1,
+    };
+    installVideoState(video, state, () => playPromise);
+
+    rerender(
+      <Harness
+        remoteCommand={command(23, "PLAYING", 5, "play", {
+          authoritativeCurrentTime: 5,
+          serverTime: "2026-08-27T12:00:00.000Z",
+          serverClockOffsetMs: 0,
+        })}
+      />,
+    );
+    await act(async () => {});
+    vi.clearAllMocks();
+
+    vi.setSystemTime(new Date("2026-08-27T12:00:00.100Z"));
+    await act(async () => {
+      state.paused = false;
+      resolvePlay();
+      await playPromise;
+      video.dispatchEvent(new Event("playing"));
+    });
+
+    expect(state.currentTime).toBe(5);
+    expect(storeActions.setCurrentTime).not.toHaveBeenCalled();
+    expect(storeActions.play).toHaveBeenCalled();
+  });
+
+  it("hard-corrects delayed remote play drift at the playing event", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-27T12:00:00.000Z"));
+    let resolvePlay: () => void = () => undefined;
+    const playPromise = new Promise<void>((resolve) => {
+      resolvePlay = resolve;
+    });
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 0,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 1,
+    };
+    installVideoState(video, state, () => playPromise);
+
+    rerender(
+      <Harness
+        remoteCommand={command(24, "PLAYING", 12, "play", {
+          authoritativeCurrentTime: 12,
+          serverTime: "2026-08-27T12:00:00.000Z",
+          serverClockOffsetMs: 0,
+        })}
+      />,
+    );
+    await act(async () => {});
+    expect(state.currentTime).toBe(12);
+
+    vi.setSystemTime(new Date("2026-08-27T12:00:01.250Z"));
+    await act(async () => {
+      state.paused = false;
+      resolvePlay();
+      await playPromise;
+      video.dispatchEvent(new Event("playing"));
+    });
+
+    expect(state.currentTime).toBe(13.25);
+    expect(storeActions.setCurrentTime).toHaveBeenLastCalledWith(13.25);
   });
 
   it("uses soft playback-rate correction for medium playing drift", async () => {
@@ -679,6 +853,51 @@ describe("usePlayer Watch Party remote sync", () => {
 
     expect(video.play).toHaveBeenCalledTimes(1);
     expect(storeActions.setAutoplayBlocked).toHaveBeenCalledWith(null);
+  });
+
+  it("ignores old source startup reconciliation after the media source changes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-27T12:00:00.000Z"));
+    let resolvePlay: () => void = () => undefined;
+    const playPromise = new Promise<void>((resolve) => {
+      resolvePlay = resolve;
+    });
+    const { rerender } = render(<Harness src="first.m3u8" remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 0,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 1,
+    };
+    installVideoState(video, state, () => playPromise);
+
+    rerender(
+      <Harness
+        src="first.m3u8"
+        remoteCommand={command(33, "PLAYING", 5, "play", {
+          authoritativeCurrentTime: 5,
+          serverTime: "2026-08-27T12:00:00.000Z",
+          serverClockOffsetMs: 0,
+        })}
+      />,
+    );
+    await act(async () => {});
+    rerender(<Harness src="second.m3u8" remoteCommand={null} />);
+    vi.clearAllMocks();
+
+    vi.setSystemTime(new Date("2026-08-27T12:00:02.000Z"));
+    await act(async () => {
+      state.paused = false;
+      resolvePlay();
+      await playPromise;
+      video.dispatchEvent(new Event("playing"));
+    });
+
+    expect(state.currentTime).toBe(5);
+    expect(storeActions.setCurrentTime).not.toHaveBeenCalled();
+    expect(storeActions.play).toHaveBeenCalledTimes(1);
   });
 
   it("prevents an old play completion from beating a newer pause", async () => {

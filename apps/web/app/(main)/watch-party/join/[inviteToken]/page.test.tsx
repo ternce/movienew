@@ -61,6 +61,7 @@ const mocks = vi.hoisted(() => ({
   leaveAck: vi.fn(),
   endAck: vi.fn(),
   createPollAck: vi.fn(),
+  emitSeekAck: vi.fn(),
   socketState: {
     isConnected: false,
     connectionState: "connecting",
@@ -288,7 +289,7 @@ vi.mock("@/hooks/use-watch-party-socket", async () => {
         requestSync: () => okAck(mocks.requestSyncState || buildRoom().playbackState),
         emitPlay: () => okAck(buildRoom().playbackState),
         emitPause: () => okAck(buildRoom().playbackState),
-        emitSeek: () => okAck(buildRoom().playbackState),
+        emitSeek: (payload: unknown) => mocks.emitSeekAck(payload),
         transferHost: () => okAck(buildRoom()),
         sendReaction: (payload: unknown) => mocks.sendReactionAck(payload),
         sendChatMessage: () => okAck({ id: "message-1" }),
@@ -387,6 +388,7 @@ describe("WatchPartyJoinPage runtime safety", () => {
     mocks.leaveAck.mockResolvedValue({ ok: true, data: {} });
     mocks.endAck.mockResolvedValue({ ok: true, data: buildRoom({ status: "ENDED" }) });
     mocks.createPollAck.mockResolvedValue({ ok: true, data: { id: "poll-1" } });
+    mocks.emitSeekAck.mockResolvedValue({ ok: true, data: buildRoom().playbackState });
     mocks.apiPost.mockResolvedValue({ success: true, data: buildRoom() });
     mocks.apiGet.mockImplementation((endpoint: string) => {
       if (endpoint.includes("/poll")) {
@@ -554,6 +556,73 @@ describe("WatchPartyJoinPage runtime safety", () => {
         }),
       );
     });
+  });
+
+  it("emits exactly one authoritative seek for a host committed seek", async () => {
+    renderJoinPage();
+    expect(await screen.findByTestId("watch-party-video-player")).toBeInTheDocument();
+
+    await act(async () => {
+      (
+        mocks.lastVideoPlayerProps?.onPlaybackAction as (action: {
+          type: "play" | "pause" | "seek";
+          currentTime: number;
+          playbackRate: number;
+        }) => void
+      )({
+        type: "seek",
+        currentTime: 42,
+        playbackRate: 1,
+      });
+    });
+
+    await waitFor(() => {
+      expect(mocks.emitSeekAck).toHaveBeenCalledTimes(1);
+    });
+    expect(mocks.emitSeekAck).toHaveBeenCalledWith(
+      expect.objectContaining({
+        currentTime: 42,
+        playbackRate: 1,
+      }),
+    );
+  });
+
+  it("does not emit authoritative seek when a guest interacts with the timeline", async () => {
+    const guestParticipant = {
+      userId: "user-guest",
+      displayName: "Guest User",
+      avatarUrl: null,
+      role: "PARTICIPANT",
+      connectionStatus: "ONLINE",
+      joinedAt: "2026-07-25T12:00:00.000Z",
+    };
+    mocks.user = { id: "user-guest", firstName: "Guest", lastName: "User" };
+    mocks.apiPost.mockResolvedValueOnce({
+      success: true,
+      data: buildRoom({
+        currentParticipant: guestParticipant,
+        participants: [buildRoom().currentParticipant, guestParticipant],
+      }),
+    });
+
+    renderJoinPage();
+    expect(await screen.findByTestId("watch-party-video-player")).toBeInTheDocument();
+
+    await act(async () => {
+      (
+        mocks.lastVideoPlayerProps?.onPlaybackAction as (action: {
+          type: "play" | "pause" | "seek";
+          currentTime: number;
+          playbackRate: number;
+        }) => void
+      )({
+        type: "seek",
+        currentTime: 42,
+        playbackRate: 1,
+      });
+    });
+
+    expect(mocks.emitSeekAck).not.toHaveBeenCalled();
   });
 
   it("fully collapses and restores the room chat without losing room state", async () => {

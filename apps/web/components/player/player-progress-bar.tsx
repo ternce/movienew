@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { usePlayerStore } from '@/stores/player.store';
 
 interface PlayerProgressBarProps {
-  onSeek: (time: number) => void;
+  onSeek: (time: number, options?: { silent?: boolean }) => void;
   className?: string;
 }
 
@@ -35,6 +35,8 @@ export function PlayerProgressBar({ onSeek, className }: PlayerProgressBarProps)
   const [hoverTime, setHoverTime] = React.useState<number | null>(null);
   const [hoverPosition, setHoverPosition] = React.useState(0);
   const progressBarRef = React.useRef<HTMLDivElement>(null);
+  const suppressNextClickRef = React.useRef(false);
+  const lastDragClientXRef = React.useRef<number | null>(null);
 
   const bufferedPercent = duration > 0 ? (bufferedTime / duration) * 100 : 0;
 
@@ -74,6 +76,10 @@ export function PlayerProgressBar({ onSeek, className }: PlayerProgressBarProps)
   // Handle click to seek
   const handleClick = React.useCallback(
     (e: React.MouseEvent) => {
+      if (suppressNextClickRef.current) {
+        suppressNextClickRef.current = false;
+        return;
+      }
       const time = getTimeFromPosition(e.clientX);
       onSeek(time);
     },
@@ -83,9 +89,12 @@ export function PlayerProgressBar({ onSeek, className }: PlayerProgressBarProps)
   // Handle drag start
   const handleMouseDown = React.useCallback(
     (e: React.MouseEvent) => {
+      e.preventDefault();
       setIsDragging(true);
+      suppressNextClickRef.current = true;
+      lastDragClientXRef.current = e.clientX;
       const time = getTimeFromPosition(e.clientX);
-      onSeek(time);
+      onSeek(time, { silent: true });
     },
     [getTimeFromPosition, onSeek]
   );
@@ -95,8 +104,9 @@ export function PlayerProgressBar({ onSeek, className }: PlayerProgressBarProps)
     (e: React.TouchEvent) => {
       e.stopPropagation();
       setIsDragging(true);
+      lastDragClientXRef.current = e.touches[0].clientX;
       const time = getTimeFromPosition(e.touches[0].clientX);
-      onSeek(time);
+      onSeek(time, { silent: true });
     },
     [getTimeFromPosition, onSeek]
   );
@@ -106,32 +116,53 @@ export function PlayerProgressBar({ onSeek, className }: PlayerProgressBarProps)
     if (!isDragging) return;
 
     const handleGlobalMouseMove = (e: MouseEvent) => {
+      lastDragClientXRef.current = e.clientX;
       const time = getTimeFromPosition(e.clientX);
-      onSeek(time);
+      onSeek(time, { silent: true });
     };
 
     const handleGlobalTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 0) return;
+      lastDragClientXRef.current = e.touches[0].clientX;
       const time = getTimeFromPosition(e.touches[0].clientX);
-      onSeek(time);
+      onSeek(time, { silent: true });
     };
 
-    const handleGlobalEnd = () => {
+    const commitDrag = (clientX: number | null) => {
+      if (clientX !== null) {
+        onSeek(getTimeFromPosition(clientX));
+      }
+      lastDragClientXRef.current = null;
       setIsDragging(false);
       setHoverTime(null);
     };
 
+    const handleGlobalMouseUp = (e: MouseEvent) => {
+      commitDrag(e.clientX);
+    };
+
+    const handleGlobalTouchEnd = (e: TouchEvent) => {
+      const clientX =
+        e.changedTouches[0]?.clientX ?? lastDragClientXRef.current;
+      commitDrag(clientX);
+    };
+
+    const handleGlobalTouchCancel = () => {
+      commitDrag(lastDragClientXRef.current);
+    };
+
     window.addEventListener('mousemove', handleGlobalMouseMove);
-    window.addEventListener('mouseup', handleGlobalEnd);
+    window.addEventListener('mouseup', handleGlobalMouseUp);
     window.addEventListener('touchmove', handleGlobalTouchMove, { passive: true });
-    window.addEventListener('touchend', handleGlobalEnd);
-    window.addEventListener('touchcancel', handleGlobalEnd);
+    window.addEventListener('touchend', handleGlobalTouchEnd);
+    window.addEventListener('touchcancel', handleGlobalTouchCancel);
 
     return () => {
       window.removeEventListener('mousemove', handleGlobalMouseMove);
-      window.removeEventListener('mouseup', handleGlobalEnd);
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
       window.removeEventListener('touchmove', handleGlobalTouchMove);
-      window.removeEventListener('touchend', handleGlobalEnd);
-      window.removeEventListener('touchcancel', handleGlobalEnd);
+      window.removeEventListener('touchend', handleGlobalTouchEnd);
+      window.removeEventListener('touchcancel', handleGlobalTouchCancel);
     };
   }, [isDragging, getTimeFromPosition, onSeek]);
 

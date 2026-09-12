@@ -119,6 +119,12 @@ function isAutoplayBlockedError(error: unknown) {
   return name === "NotAllowedError";
 }
 
+type RemoteStartupCommand = {
+  command: PlaybackRemoteCommand;
+  version: number;
+  sourceVersion: number;
+};
+
 /**
  * HLS.js video player hook
  * Handles all video playback logic and syncs with Zustand store
@@ -146,6 +152,8 @@ export function usePlayer({
   const remoteCommandVersionRef = useRef(0);
   const latestRemoteCommandRef = useRef<PlaybackRemoteCommand | null>(null);
   const pendingRemoteCommandRef = useRef<PlaybackRemoteCommand | null>(null);
+  const remoteStartupCommandRef = useRef<RemoteStartupCommand | null>(null);
+  const sourceVersionRef = useRef(0);
   const softCorrectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -243,6 +251,36 @@ export function usePlayer({
     [clearSoftCorrection],
   );
 
+  const reconcilePlayingToRemoteTarget = useCallback(
+    (command: PlaybackRemoteCommand, forceSnap = false) => {
+      const video = videoRef.current;
+      if (!video) return;
+
+      const targetTime = Number(getCommandTargetTime(command));
+      const playbackRate = getCommandPlaybackRate(command);
+      video.playbackRate = playbackRate;
+
+      if (!Number.isFinite(targetTime)) return;
+
+      let nextTime = getClampedPlaybackTime(video, targetTime);
+      if (shouldRestartEndedPlayback(video, nextTime)) {
+        nextTime = 0;
+        endedCallbackFiredRef.current = false;
+        setEnded(false);
+      }
+
+      const drift = Math.abs(video.currentTime - nextTime);
+      if (forceSnap || drift > PLAYING_DRIFT_HARD_SECONDS || video.ended) {
+        clearSoftCorrection(playbackRate);
+        video.currentTime = nextTime;
+        setCurrentTime(video.currentTime);
+      } else if (drift > PLAYING_DRIFT_IGNORE_SECONDS) {
+        applySoftCorrection(playbackRate, nextTime - video.currentTime);
+      }
+    },
+    [applySoftCorrection, clearSoftCorrection, setCurrentTime, setEnded],
+  );
+
   const applyRemotePlaybackCommand = useCallback(
     async (command: PlaybackRemoteCommand, version: number) => {
       const video = videoRef.current;
@@ -300,6 +338,11 @@ export function usePlayer({
       }
 
       if (status === "PLAYING") {
+        remoteStartupCommandRef.current = {
+          command,
+          version,
+          sourceVersion: sourceVersionRef.current,
+        };
         if (video.paused || video.ended) {
           setPlayPending(true);
           await video.play().catch((error: unknown) => {
@@ -325,6 +368,7 @@ export function usePlayer({
         }
       } else if (status === "PAUSED") {
         pendingRemoteCommandRef.current = null;
+        remoteStartupCommandRef.current = null;
         clearSoftCorrection(playbackRate);
         if (!video.paused) {
           video.pause();
@@ -367,7 +411,9 @@ export function usePlayer({
 
     endedCallbackFiredRef.current = false;
     sourceTransitionRef.current = true;
+    sourceVersionRef.current += 1;
     pendingRemoteCommandRef.current = null;
+    remoteStartupCommandRef.current = null;
     setError(null);
     setAutoplayBlocked(null);
     setPlayPending(false);
@@ -529,6 +575,7 @@ export function usePlayer({
       if (!pendingCommand || getRemotePlaybackStatus(pendingCommand) !== "PLAYING") {
         pendingRemoteCommandRef.current = null;
       }
+      remoteStartupCommandRef.current = null;
       pause();
       flushProgress("pause");
     };
@@ -539,7 +586,38 @@ export function usePlayer({
       setEnded(true);
       onEnded?.();
     };
+    const confirmPlaybackStarted = () => {
+      const latestCommand = latestRemoteCommandRef.current;
+      if (
+        latestCommand &&
+        getRemotePlaybackStatus(latestCommand) === "PAUSED" &&
+        !video.paused
+      ) {
+        video.pause();
+        return false;
+      }
+
+      const startupCommand = remoteStartupCommandRef.current;
+      if (
+        startupCommand &&
+        startupCommand.version === remoteCommandVersionRef.current &&
+        startupCommand.sourceVersion === sourceVersionRef.current &&
+        getRemotePlaybackStatus(startupCommand.command) === "PLAYING"
+      ) {
+        reconcilePlayingToRemoteTarget(startupCommand.command);
+      }
+      remoteStartupCommandRef.current = null;
+      pendingRemoteCommandRef.current = null;
+      play();
+      setBuffering(false);
+      setError(null);
+      setAutoplayBlocked(null);
+      return true;
+    };
     const handleTimeUpdate = () => {
+      if (!video.paused && !video.ended && !isPlaying) {
+        confirmPlaybackStarted();
+      }
       setCurrentTime(video.currentTime);
       onTimeUpdate?.(video.currentTime);
       if (
@@ -573,20 +651,7 @@ export function usePlayer({
       setError(null);
     };
     const handlePlaying = () => {
-      const latestCommand = latestRemoteCommandRef.current;
-      if (
-        latestCommand &&
-        getRemotePlaybackStatus(latestCommand) === "PAUSED" &&
-        !video.paused
-      ) {
-        video.pause();
-        return;
-      }
-      pendingRemoteCommandRef.current = null;
-      play();
-      setBuffering(false);
-      setError(null);
-      setAutoplayBlocked(null);
+      confirmPlaybackStarted();
     };
     const handleVolumeChange = () => {
       setVolume(video.volume);
@@ -639,11 +704,13 @@ export function usePlayer({
     setError,
     setAutoplayBlocked,
     setPlayPending,
+    isPlaying,
     onEnded,
     onError,
     onProgress,
     onTimeUpdate,
     applyRemotePlaybackCommand,
+    reconcilePlayingToRemoteTarget,
   ]);
 
   useEffect(() => {
@@ -839,6 +906,7 @@ export function usePlayer({
       });
     } else {
       pendingRemoteCommandRef.current = null;
+      remoteStartupCommandRef.current = null;
       video.pause();
     }
 
