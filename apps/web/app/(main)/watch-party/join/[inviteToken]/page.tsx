@@ -221,6 +221,15 @@ function logPlaybackReconciliationTrace(
   });
 }
 
+function getDiagnosticsFilename() {
+  const stamp = new Date()
+    .toISOString()
+    .slice(0, 19)
+    .replace("T", "-")
+    .replace(/:/g, "-");
+  return `watch-party-diagnostics-${stamp}.txt`;
+}
+
 function getParticipantName(participant: WatchPartyParticipant) {
   return participant.displayName || participant.userId;
 }
@@ -686,9 +695,11 @@ function WatchPartyJoinPageContent() {
   const [syncError, setSyncError] = React.useState<string | null>(null);
   const [roomEndedOverlay, setRoomEndedOverlay] = React.useState(false);
   const [diagnosticsCopied, setDiagnosticsCopied] = React.useState(false);
+  const [diagnosticsExportText, setDiagnosticsExportText] = React.useState<string | null>(null);
   const diagnosticsEnabled = isWatchPartyDiagnosticsEnabled();
 
   const chatListRef = React.useRef<HTMLDivElement>(null);
+  const diagnosticsTextareaRef = React.useRef<HTMLTextAreaElement>(null);
   const reactionTimersRef = React.useRef<Map<string, number>>(new Map());
   const latestSequenceRef = React.useRef(-1);
   const localTimeRef = React.useRef(0);
@@ -1215,6 +1226,14 @@ function WatchPartyJoinPageContent() {
   }, [disconnect, returnFromRoom, roomEndedOverlay]);
 
   React.useEffect(() => {
+    if (!diagnosticsExportText) return;
+    window.setTimeout(() => {
+      diagnosticsTextareaRef.current?.focus();
+      diagnosticsTextareaRef.current?.select();
+    }, 0);
+  }, [diagnosticsExportText]);
+
+  React.useEffect(() => {
     const query = voteSearch.trim();
     if (!voteModalOpen || query.length < 2) {
       setVoteResults([]);
@@ -1390,14 +1409,41 @@ function WatchPartyJoinPageContent() {
 
   const handleCopyDiagnostics = React.useCallback(async () => {
     const text = getWatchPartyDiagnosticLogText();
-    if (navigator.clipboard?.writeText) {
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard API unavailable");
+      }
       await navigator.clipboard.writeText(text);
       setDiagnosticsCopied(true);
       toast.success("WP Diagnostics copied");
-    } else {
-      toast.error("Clipboard unavailable");
+    } catch {
+      setDiagnosticsCopied(false);
+      setDiagnosticsExportText(text);
     }
   }, []);
+
+  const handleSelectDiagnostics = React.useCallback(() => {
+    diagnosticsTextareaRef.current?.focus();
+    diagnosticsTextareaRef.current?.select();
+  }, []);
+
+  const handleCloseDiagnosticsExport = React.useCallback(() => {
+    setDiagnosticsExportText(null);
+  }, []);
+
+  const handleDownloadDiagnostics = React.useCallback(() => {
+    const text = diagnosticsExportText ?? getWatchPartyDiagnosticLogText();
+    const url = URL.createObjectURL(
+      new Blob([text], { type: "text/plain;charset=utf-8" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = getDiagnosticsFilename();
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, [diagnosticsExportText]);
 
   const handleClearDiagnostics = React.useCallback(() => {
     clearWatchPartyDiagnostics();
@@ -1908,6 +1954,51 @@ function WatchPartyJoinPageContent() {
           </div>
         </div>
       )}
+      {diagnosticsExportText !== null && (
+        <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/70 p-3 sm:items-center">
+          <div className="max-h-[88vh] w-full max-w-2xl overflow-hidden rounded-2xl border border-white/12 bg-[#080a12] shadow-2xl">
+            <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+              <h2 className="text-sm font-semibold text-white">WP Diagnostics</h2>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 px-3 text-xs text-white/80 hover:text-white"
+                onClick={handleCloseDiagnosticsExport}
+              >
+                Close
+              </Button>
+            </div>
+            <div className="grid max-h-[calc(88vh-3.5rem)] gap-3 overflow-y-auto p-4">
+              <textarea
+                ref={diagnosticsTextareaRef}
+                readOnly
+                value={diagnosticsExportText}
+                className="min-h-[45vh] w-full resize-y rounded-xl border border-white/10 bg-black/45 p-3 font-mono text-xs leading-relaxed text-white/85 outline-none"
+                aria-label="Watch Party diagnostics logs"
+              />
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleSelectDiagnostics}
+                >
+                  Select logs
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleDownloadDiagnostics}
+                >
+                  Download logs
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="sesh-watch-party-shell">
         <header className="sesh-watch-party-header">
           <div className="min-w-0 flex-1">
@@ -2189,6 +2280,15 @@ function WatchPartyJoinPageContent() {
                     onClick={handleMarkFreeze}
                   >
                     Mark freeze
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-white/85 hover:text-white"
+                    onClick={handleDownloadDiagnostics}
+                  >
+                    Download logs
                   </Button>
                   <Button
                     type="button"

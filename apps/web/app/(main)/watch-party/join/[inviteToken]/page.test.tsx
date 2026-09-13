@@ -4,6 +4,11 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  clearWatchPartyDiagnostics,
+  logWatchPartyDiagnostic,
+} from "@/lib/watch-party-diagnostics";
+
 import WatchPartyJoinPage from "./page";
 
 const inviteToken = "GiHbb05WpX4OY1Gr5-l61AsqvjeX3cKdeUxI1oRGb3s";
@@ -82,6 +87,8 @@ function hasText(text: string) {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
+  clearWatchPartyDiagnostics();
 });
 
 function buildRoom(overrides: Record<string, unknown> = {}) {
@@ -344,6 +351,7 @@ function renderJoinPage() {
 describe("WatchPartyJoinPage runtime safety", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearWatchPartyDiagnostics();
     mocks.router = {
       replace: mocks.replace,
       push: mocks.push,
@@ -556,6 +564,110 @@ describe("WatchPartyJoinPage runtime safety", () => {
         }),
       );
     });
+  });
+
+  it("copies Watch Party diagnostics when the Clipboard API succeeds", async () => {
+    vi.stubEnv("NEXT_PUBLIC_WATCH_PARTY_DIAGNOSTICS", "true");
+    logWatchPartyDiagnostic("[WP MEDIA EVENT]", {
+      event: "waiting",
+      sequence: 71,
+    });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    renderJoinPage();
+    expect(await screen.findByTestId("watch-party-video-player")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Copy logs"));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(
+        expect.stringContaining("[WP MEDIA EVENT] waiting sequence=71"),
+      );
+    });
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("WP Diagnostics copied");
+    expect(screen.queryByLabelText("Watch Party diagnostics logs")).not.toBeInTheDocument();
+  });
+
+  it("opens a selectable diagnostics export panel when clipboard copy fails", async () => {
+    vi.stubEnv("NEXT_PUBLIC_WATCH_PARTY_DIAGNOSTICS", "true");
+    logWatchPartyDiagnostic("[WP MEDIA MUTATION]", {
+      action: "playbackRate",
+      from: 1.03,
+      to: 1,
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) },
+    });
+
+    renderJoinPage();
+    expect(await screen.findByTestId("watch-party-video-player")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Copy logs"));
+
+    const textarea = await screen.findByLabelText("Watch Party diagnostics logs");
+    expect((textarea as HTMLTextAreaElement).value).toContain(
+      "[WP MEDIA MUTATION] playbackRate from=1.03 to=1",
+    );
+    expect(screen.getByText("Select logs")).toBeInTheDocument();
+    expect(screen.getAllByText("Download logs")).toHaveLength(2);
+    expect(screen.getByText("Close")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Select logs"));
+    expect(document.activeElement).toBe(textarea);
+  });
+
+  it("downloads the current diagnostics ring buffer as a text file", async () => {
+    vi.stubEnv("NEXT_PUBLIC_WATCH_PARTY_DIAGNOSTICS", "true");
+    logWatchPartyDiagnostic("[WP SOCKET]", {
+      event: "sync-state",
+      sequence: 72,
+    });
+    const createObjectURL = vi.fn(() => "blob:wp-diagnostics");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectURL,
+    });
+
+    renderJoinPage();
+    expect(await screen.findByTestId("watch-party-video-player")).toBeInTheDocument();
+    const realCreateElement = document.createElement.bind(document);
+    let downloadLink: HTMLAnchorElement | null = null;
+    vi.spyOn(document, "createElement").mockImplementation((tagName) => {
+      const element = realCreateElement(tagName);
+      if (tagName === "a") {
+        downloadLink = element as HTMLAnchorElement;
+        Object.defineProperty(downloadLink, "click", {
+          configurable: true,
+          value: vi.fn(),
+        });
+      }
+      return element;
+    });
+
+    await userEvent.click(screen.getByText("Download logs"));
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    const blob = createObjectURL.mock.calls[0][0] as Blob;
+    const blobText = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsText(blob);
+    });
+    expect(blobText).toContain("[WP SOCKET] sync-state sequence=72");
+    expect(downloadLink?.download).toMatch(
+      /^watch-party-diagnostics-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.txt$/,
+    );
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:wp-diagnostics");
   });
 
   it("emits exactly one authoritative seek for a host committed seek", async () => {
