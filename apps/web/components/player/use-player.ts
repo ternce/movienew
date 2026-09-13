@@ -135,6 +135,7 @@ type RemoteStartupCommand = {
 };
 
 type SyncCorrectionType = "IGNORE" | "SOFT" | "STRONG_SOFT" | "HARD";
+type PlaybackEngine = "hls.js" | "native-hls" | "native-file";
 
 function getNowMs() {
   return typeof performance !== "undefined" ? performance.now() : Date.now();
@@ -156,11 +157,18 @@ function logSyncCorrection(details: {
   rateBefore: number;
   rateAfter: number;
   command: PlaybackRemoteCommand;
+  playbackEngine: PlaybackEngine;
 }) {
   if (!isWatchPartyDiagnosticsEnabled()) return;
+  const browser = getBrowserDiagnostics();
   logWatchPartyDiagnostic("[WP Sync Correction]", {
     reason: details.reason,
     type: details.type,
+    playbackEngine: details.playbackEngine,
+    isIOS: browser.isIOS,
+    isSafari: browser.isSafari,
+    userAgentSummary: browser.userAgentSummary,
+    userAgent: browser.userAgent,
     driftMs: Math.round(Math.abs(details.drift) * 1000),
     local: Number(details.local.toFixed(3)),
     target: Number(details.target.toFixed(3)),
@@ -184,15 +192,61 @@ function getDiagnosticTarget(command?: PlaybackRemoteCommand | null) {
   return Number.isFinite(target) ? target : null;
 }
 
-function getBufferedAhead(video: HTMLVideoElement) {
+function getBrowserDiagnostics() {
+  if (typeof navigator === "undefined") {
+    return {
+      userAgent: "unknown",
+      userAgentSummary: "unknown",
+      isIOS: false,
+      isSafari: false,
+    };
+  }
+
+  const userAgent = navigator.userAgent;
+  const platform = navigator.platform;
+  const maxTouchPoints = navigator.maxTouchPoints || 0;
+  const isIOS =
+    /iPad|iPhone|iPod/.test(userAgent) ||
+    (platform === "MacIntel" && maxTouchPoints > 1);
+  const isSafari =
+    /Safari/.test(userAgent) &&
+    !/Chrome|Chromium|CriOS|FxiOS|Edg|EdgiOS|OPiOS/.test(userAgent);
+
+  return {
+    userAgent,
+    userAgentSummary: [
+      isIOS ? "iOS" : "non-iOS",
+      isSafari ? "Safari" : "non-Safari",
+    ].join(" "),
+    isIOS,
+    isSafari,
+  };
+}
+
+function getBufferedSnapshot(video: HTMLVideoElement) {
+  const snapshot = {
+    bufferedLength: video.buffered.length,
+    bufferedStart: null as number | null,
+    bufferedEnd: null as number | null,
+    bufferAheadSeconds: null as number | null,
+  };
+
   for (let index = 0; index < video.buffered.length; index += 1) {
-    const start = video.buffered.start(index);
-    const end = video.buffered.end(index);
-    if (video.currentTime >= start && video.currentTime <= end) {
-      return end - video.currentTime;
+    try {
+      const start = video.buffered.start(index);
+      const end = video.buffered.end(index);
+      if (video.currentTime >= start && video.currentTime <= end) {
+        snapshot.bufferedStart = Number(start.toFixed(3));
+        snapshot.bufferedEnd = Number(end.toFixed(3));
+        snapshot.bufferAheadSeconds = Number((end - video.currentTime).toFixed(3));
+        return snapshot;
+      }
+    } catch {
+      return snapshot;
     }
   }
-  return null;
+
+  return snapshot;
 }
 
 /**
@@ -224,6 +278,7 @@ export function usePlayer({
   const pendingRemoteCommandRef = useRef<PlaybackRemoteCommand | null>(null);
   const remoteStartupCommandRef = useRef<RemoteStartupCommand | null>(null);
   const sourceVersionRef = useRef(0);
+  const playbackEngineRef = useRef<PlaybackEngine>("native-file");
   const softCorrectionBaseRateRef = useRef<number | null>(null);
   const softCorrectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -290,7 +345,8 @@ export function usePlayer({
   const getMediaDiagnosticFields = useCallback(
     (video: HTMLVideoElement, command = latestRemoteCommandRef.current) => {
       const target = getDiagnosticTarget(command);
-      const bufferedAhead = getBufferedAhead(video);
+      const buffered = getBufferedSnapshot(video);
+      const browser = getBrowserDiagnostics();
       const driftMs =
         typeof target === "number"
           ? Math.round((target - video.currentTime) * 1000)
@@ -298,6 +354,11 @@ export function usePlayer({
 
       return {
         atMs: Math.round(getNowMs()),
+        playbackEngine: playbackEngineRef.current,
+        isIOS: browser.isIOS,
+        isSafari: browser.isSafari,
+        userAgentSummary: browser.userAgentSummary,
+        userAgent: browser.userAgent,
         currentTime: Number(video.currentTime.toFixed(3)),
         paused: video.paused,
         readyState: video.readyState,
@@ -315,8 +376,10 @@ export function usePlayer({
             ? Number(video.playbackRate.toFixed(3))
             : null,
         sourceVersion: sourceVersionRef.current,
-        bufferedAhead:
-          bufferedAhead === null ? null : Number(bufferedAhead.toFixed(3)),
+        bufferedLength: buffered.bufferedLength,
+        bufferedStart: buffered.bufferedStart,
+        bufferedEnd: buffered.bufferedEnd,
+        bufferAheadSeconds: buffered.bufferAheadSeconds,
         lastMediaEvent: lastMediaEventRef.current,
       };
     },
@@ -476,6 +539,7 @@ export function usePlayer({
           rateBefore,
           rateAfter: video.playbackRate || playbackRate,
           command,
+          playbackEngine: playbackEngineRef.current,
         });
         return;
       }
@@ -498,6 +562,7 @@ export function usePlayer({
           rateBefore,
           rateAfter: video.playbackRate || playbackRate,
           command,
+          playbackEngine: playbackEngineRef.current,
         });
       } else if (absDrift > PLAYING_DRIFT_SOFT_SECONDS) {
         applySoftCorrection(playbackRate, drift, STRONG_SOFT_CORRECTION_RATE_DELTA);
@@ -510,6 +575,7 @@ export function usePlayer({
           rateBefore,
           rateAfter: video.playbackRate,
           command,
+          playbackEngine: playbackEngineRef.current,
         });
       } else if (absDrift > PLAYING_DRIFT_IGNORE_SECONDS) {
         applySoftCorrection(playbackRate, drift);
@@ -522,6 +588,7 @@ export function usePlayer({
           rateBefore,
           rateAfter: video.playbackRate,
           command,
+          playbackEngine: playbackEngineRef.current,
         });
       } else {
         logSyncCorrection({
@@ -533,6 +600,7 @@ export function usePlayer({
           rateBefore,
           rateAfter: video.playbackRate || playbackRate,
           command,
+          playbackEngine: playbackEngineRef.current,
         });
       }
     },
@@ -702,6 +770,22 @@ export function usePlayer({
       }, 900);
     };
 
+    const logPlayerEngine = (playbackEngine: PlaybackEngine) => {
+      playbackEngineRef.current = playbackEngine;
+      if (!isWatchPartyDiagnosticsEnabled()) return;
+      const browser = getBrowserDiagnostics();
+      logWatchPartyDiagnostic("[WP PLAYER]", {
+        event: "engine-selected",
+        playbackEngine,
+        isIOS: browser.isIOS,
+        isSafari: browser.isSafari,
+        userAgentSummary: browser.userAgentSummary,
+        userAgent: browser.userAgent,
+        sourceVersion: sourceVersionRef.current,
+        src,
+      });
+    };
+
     // Clean up previous instance
     if (hlsRef.current) {
       logMediaMutation("hls.destroy", "source-change-cleanup");
@@ -710,6 +794,7 @@ export function usePlayer({
 
     // Check if HLS is supported
     if (Hls.isSupported()) {
+      logPlayerEngine("hls.js");
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: false,
@@ -734,9 +819,16 @@ export function usePlayer({
         Hls.Events.ERROR,
       ].forEach((eventName) => {
         hls.on(eventName, (_event: unknown, data: unknown) => {
+          const browser = getBrowserDiagnostics();
+          const buffered = getBufferedSnapshot(video);
           logWatchPartyDiagnostic("[WP HLS]", {
             event: eventName,
             atMs: Math.round(getNowMs()),
+            playbackEngine: playbackEngineRef.current,
+            isIOS: browser.isIOS,
+            isSafari: browser.isSafari,
+            userAgentSummary: browser.userAgentSummary,
+            userAgent: browser.userAgent,
             sourceVersion: sourceVersionRef.current,
             currentTime: Number(video.currentTime.toFixed(3)),
             paused: video.paused,
@@ -744,6 +836,10 @@ export function usePlayer({
             networkState: video.networkState,
             playbackRate: Number(video.playbackRate.toFixed(3)),
             seeking: video.seeking,
+            bufferedLength: buffered.bufferedLength,
+            bufferedStart: buffered.bufferedStart,
+            bufferedEnd: buffered.bufferedEnd,
+            bufferAheadSeconds: buffered.bufferAheadSeconds,
             sequence: getRemoteSequence(latestRemoteCommandRef.current),
             type: typeof data === "object" && data && "type" in data ? data.type : undefined,
             details: typeof data === "object" && data && "details" in data ? data.details : undefined,
@@ -819,6 +915,7 @@ export function usePlayer({
       hlsRef.current = hls;
     } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
       // Native HLS support (Safari)
+      logPlayerEngine("native-hls");
       logMediaMutation("src", "native-hls-source-init", { src });
       video.src = src;
       if (autoPlayRef.current) {
@@ -1159,8 +1256,13 @@ export function usePlayer({
     const video = videoRef.current;
     if (!video) return;
 
+    const previousRate = video.playbackRate;
     video.playbackRate = playbackSpeed;
-  }, [playbackSpeed]);
+    logMediaMutation("playbackRate", "playback-speed-setting", {
+      from: Number(previousRate.toFixed(3)),
+      to: Number(playbackSpeed.toFixed(3)),
+    });
+  }, [logMediaMutation, playbackSpeed]);
 
   // Auto-hide controls
   useEffect(() => {

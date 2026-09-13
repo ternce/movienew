@@ -71,6 +71,7 @@ type VideoState = {
   readyState: number;
   networkState?: number;
   seeking?: boolean;
+  bufferedRanges?: Array<[number, number]>;
   playbackRate?: number;
   error?: MediaError | null;
   currentTimeWrites?: number;
@@ -117,6 +118,14 @@ function installVideoState(
   Object.defineProperty(video, "seeking", {
     configurable: true,
     get: () => state.seeking ?? false,
+  });
+  Object.defineProperty(video, "buffered", {
+    configurable: true,
+    get: () => ({
+      length: state.bufferedRanges?.length || 0,
+      start: (index: number) => state.bufferedRanges?.[index]?.[0] ?? 0,
+      end: (index: number) => state.bufferedRanges?.[index]?.[1] ?? 0,
+    }),
   });
   Object.defineProperty(video, "playbackRate", {
     configurable: true,
@@ -960,6 +969,40 @@ describe("usePlayer Watch Party remote sync", () => {
         reason: "remote-command-base-rate",
         softCorrectionActive: true,
         to: 1,
+      }),
+    );
+  });
+
+  it("includes native HLS engine and buffer details on playbackRate diagnostics", async () => {
+    vi.spyOn(HTMLMediaElement.prototype, "canPlayType").mockReturnValue("probably");
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    installVideoState(video, {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1,
+      bufferedRanges: [[8, 12.5]],
+    });
+    vi.clearAllMocks();
+
+    rerender(<Harness remoteCommand={command(77, "PLAYING", 10.4)} />);
+    await act(async () => {});
+
+    expect(console.debug).toHaveBeenCalledWith(
+      "[WP MEDIA MUTATION]",
+      expect.objectContaining({
+        action: "playbackRate",
+        playbackEngine: "native-hls",
+        bufferedLength: 1,
+        bufferedStart: 8,
+        bufferedEnd: 12.5,
+        bufferAheadSeconds: 2.5,
+        isIOS: expect.any(Boolean),
+        isSafari: expect.any(Boolean),
+        userAgentSummary: expect.any(String),
       }),
     );
   });
