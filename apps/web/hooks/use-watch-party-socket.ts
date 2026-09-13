@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Socket } from "socket.io-client";
 
+import {
+  isWatchPartyDiagnosticsEnabled,
+  logWatchPartyDiagnostic,
+} from "@/lib/watch-party-diagnostics";
 import { useAuthStore } from "@/stores/auth.store";
 
 function getSocketUrl() {
@@ -182,6 +186,49 @@ type Ack<T> =
   | { ok: true; data: T }
   | { ok: false; code?: string; message?: string };
 
+function getDebugNowMs() {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
+function getDebugPlaybackTarget(state?: WatchPartyPlaybackState | null) {
+  if (!state) return null;
+  const baseTime =
+    typeof state.effectiveCurrentTime === "number"
+      ? state.effectiveCurrentTime
+      : state.currentTime;
+  if (state.playbackStatus !== "PLAYING") return baseTime;
+
+  const serverTimeMs = Date.parse(state.serverTime || state.updatedAt);
+  if (!Number.isFinite(serverTimeMs)) return baseTime;
+
+  const elapsedSeconds = Math.max(0, (Date.now() - serverTimeMs) / 1000);
+  return baseTime + elapsedSeconds * (state.playbackRate || 1);
+}
+
+function logWatchPartySocketTrace(
+  phase: "incoming" | "emit" | "ack",
+  event: string,
+  fields: Record<string, unknown> = {},
+  state?: WatchPartyPlaybackState | null,
+) {
+  if (!isWatchPartyDiagnosticsEnabled()) return;
+  const target = getDebugPlaybackTarget(state);
+  logWatchPartyDiagnostic("[WP SOCKET]", {
+    phase,
+    event,
+    atMs: Math.round(getDebugNowMs()),
+    sequence: state?.sequence ?? null,
+    status: state?.playbackStatus ?? null,
+    currentTime: state?.currentTime ?? null,
+    effectiveCurrentTime: state?.effectiveCurrentTime ?? null,
+    updatedAt: state?.updatedAt ?? null,
+    serverTime: state?.serverTime ?? null,
+    computedTarget:
+      typeof target === "number" ? Number(target.toFixed(3)) : null,
+    ...fields,
+  });
+}
+
 type EmitPlaybackInput = {
   roomId: string;
   currentTime: number;
@@ -321,8 +368,13 @@ export function useWatchPartySocket({
   const emitAck = useCallback(
     <T,>(event: string, payload: unknown) =>
       new Promise<Ack<T>>((resolve) => {
+        const startedAt = getDebugNowMs();
         const socket = socketRef.current;
         if (!socket?.connected) {
+          logWatchPartySocketTrace("emit", event, {
+            connected: false,
+            payload,
+          });
           resolve({
             ok: false,
             code: "SOCKET_DISCONNECTED",
@@ -331,10 +383,19 @@ export function useWatchPartySocket({
           return;
         }
 
+        logWatchPartySocketTrace("emit", event, {
+          connected: true,
+          payload,
+        });
         let settled = false;
         const timeout = window.setTimeout(() => {
           if (settled) return;
           settled = true;
+          logWatchPartySocketTrace("ack", event, {
+            ok: false,
+            code: "ACK_TIMEOUT",
+            rttMs: Math.round(getDebugNowMs() - startedAt),
+          });
           resolve({
             ok: false,
             code: "ACK_TIMEOUT",
@@ -346,6 +407,18 @@ export function useWatchPartySocket({
           if (settled) return;
           settled = true;
           window.clearTimeout(timeout);
+          logWatchPartySocketTrace(
+            "ack",
+            event,
+            {
+              ok: response.ok,
+              code: response.ok ? undefined : response.code,
+              rttMs: Math.round(getDebugNowMs() - startedAt),
+            },
+            response.ok
+              ? (response.data as WatchPartyPlaybackState)
+              : null,
+          );
           resolve(response);
         });
       }),
@@ -380,6 +453,12 @@ export function useWatchPartySocket({
       callbacksRef.current.onJoined?.(payload.room, payload.participants);
 
       if (payload.room.playbackState) {
+        logWatchPartySocketTrace(
+          "incoming",
+          "watch-party:join.playbackState",
+          {},
+          payload.room.playbackState,
+        );
         callbacksRef.current.onPlaybackState?.(
           payload.room.playbackState,
           "state",
@@ -514,18 +593,23 @@ export function useWatchPartySocket({
       );
 
       socket.on("watch-party:playback-state", (state: WatchPartyPlaybackState) => {
+        logWatchPartySocketTrace("incoming", "watch-party:playback-state", {}, state);
         callbacksRef.current.onPlaybackState?.(state, "state");
       });
       socket.on("watch-party:sync-state", (state: WatchPartyPlaybackState) => {
+        logWatchPartySocketTrace("incoming", "watch-party:sync-state", {}, state);
         callbacksRef.current.onPlaybackState?.(state, "sync");
       });
       socket.on("watch-party:play", (state: WatchPartyPlaybackState) => {
+        logWatchPartySocketTrace("incoming", "watch-party:play", {}, state);
         callbacksRef.current.onPlaybackState?.(state, "play");
       });
       socket.on("watch-party:pause", (state: WatchPartyPlaybackState) => {
+        logWatchPartySocketTrace("incoming", "watch-party:pause", {}, state);
         callbacksRef.current.onPlaybackState?.(state, "pause");
       });
       socket.on("watch-party:seek", (state: WatchPartyPlaybackState) => {
+        logWatchPartySocketTrace("incoming", "watch-party:seek", {}, state);
         callbacksRef.current.onPlaybackState?.(state, "seek");
       });
       socket.on(
@@ -574,6 +658,12 @@ export function useWatchPartySocket({
           countdownId?: string;
           playbackState: WatchPartyPlaybackState;
         }) => {
+          logWatchPartySocketTrace(
+            "incoming",
+            "watch-party:content-changed.playbackState",
+            { selectedOptionId: payload.selectedOptionId ?? null },
+            payload.playbackState,
+          );
           callbacksRef.current.onContentChanged?.(payload);
         },
       );
@@ -592,6 +682,12 @@ export function useWatchPartySocket({
           room: WatchPartyRoom;
           playbackState: WatchPartyPlaybackState;
         }) => {
+          logWatchPartySocketTrace(
+            "incoming",
+            "watch-party:next-episode-start.playbackState",
+            {},
+            payload.playbackState,
+          );
           callbacksRef.current.onNextEpisodeCancel?.();
           callbacksRef.current.onContentChanged?.(payload);
         },

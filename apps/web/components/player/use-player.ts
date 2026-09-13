@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useRef } from "react";
 import Hls from "hls.js";
 
+import {
+  isWatchPartyDiagnosticsEnabled,
+  logWatchPartyDiagnostic,
+} from "@/lib/watch-party-diagnostics";
 import { usePlayerStore, type VideoQuality } from "@/stores/player.store";
 
 interface UsePlayerOptions {
@@ -132,6 +136,10 @@ type RemoteStartupCommand = {
 
 type SyncCorrectionType = "IGNORE" | "SOFT" | "STRONG_SOFT" | "HARD";
 
+function getNowMs() {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
 function getCorrectionReason(command: PlaybackRemoteCommand) {
   const id = String(command.id);
   if (id.includes(":sync:")) return "sync";
@@ -149,21 +157,42 @@ function logSyncCorrection(details: {
   rateAfter: number;
   command: PlaybackRemoteCommand;
 }) {
-  if (process.env.NODE_ENV === "production") return;
-  // eslint-disable-next-line no-console
-  console.debug(
-    "[WP Sync]",
-    `reason=${details.reason}`,
-    `type=${details.type}`,
-    `driftMs=${Math.round(Math.abs(details.drift) * 1000)}`,
-    `local=${details.local.toFixed(3)}`,
-    `target=${details.target.toFixed(3)}`,
-    `rate=${details.rateAfter.toFixed(3)}`,
-    `rateBefore=${details.rateBefore.toFixed(3)}`,
-    `sequence=${String(details.command.id).split(":")[0]}`,
-    `status=${getRemotePlaybackStatus(details.command) || "unknown"}`,
-    `at=${new Date().toISOString()}`,
-  );
+  if (!isWatchPartyDiagnosticsEnabled()) return;
+  logWatchPartyDiagnostic("[WP Sync Correction]", {
+    reason: details.reason,
+    type: details.type,
+    driftMs: Math.round(Math.abs(details.drift) * 1000),
+    local: Number(details.local.toFixed(3)),
+    target: Number(details.target.toFixed(3)),
+    rate: Number(details.rateAfter.toFixed(3)),
+    rateBefore: Number(details.rateBefore.toFixed(3)),
+    sequence: String(details.command.id).split(":")[0],
+    status: getRemotePlaybackStatus(details.command) || "unknown",
+    at: new Date().toISOString(),
+  });
+}
+
+function getRemoteSequence(command?: PlaybackRemoteCommand | null) {
+  if (!command) return null;
+  const sequence = String(command.id).split(":")[0];
+  return sequence || null;
+}
+
+function getDiagnosticTarget(command?: PlaybackRemoteCommand | null) {
+  if (!command) return null;
+  const target = Number(getCommandTargetTime(command));
+  return Number.isFinite(target) ? target : null;
+}
+
+function getBufferedAhead(video: HTMLVideoElement) {
+  for (let index = 0; index < video.buffered.length; index += 1) {
+    const start = video.buffered.start(index);
+    const end = video.buffered.end(index);
+    if (video.currentTime >= start && video.currentTime <= end) {
+      return end - video.currentTime;
+    }
+  }
+  return null;
 }
 
 /**
@@ -199,6 +228,9 @@ export function usePlayer({
   const softCorrectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const lastTimeUpdateTraceAtRef = useRef(0);
+  const correctionTraceUntilRef = useRef(0);
+  const lastMediaEventRef = useRef<string | null>(null);
   // Native media events fired while HLS is replacing/attaching a source are not
   // user playback intent. Treating those pause/play events as host commands can
   // create a PLAYING -> PAUSED feedback loop after Watch Party changes content.
@@ -255,6 +287,89 @@ export function usePlayer({
     isControlsVisible,
   } = usePlayerStore();
 
+  const getMediaDiagnosticFields = useCallback(
+    (video: HTMLVideoElement, command = latestRemoteCommandRef.current) => {
+      const target = getDiagnosticTarget(command);
+      const bufferedAhead = getBufferedAhead(video);
+      const driftMs =
+        typeof target === "number"
+          ? Math.round((target - video.currentTime) * 1000)
+          : null;
+
+      return {
+        atMs: Math.round(getNowMs()),
+        currentTime: Number(video.currentTime.toFixed(3)),
+        paused: video.paused,
+        readyState: video.readyState,
+        networkState: video.networkState,
+        playbackRate: Number(video.playbackRate.toFixed(3)),
+        seeking: video.seeking,
+        roomStatus: command ? getRemotePlaybackStatus(command) || null : null,
+        target: typeof target === "number" ? Number(target.toFixed(3)) : null,
+        driftMs,
+        sequence: getRemoteSequence(command),
+        remoteType: command?.type || null,
+        softCorrectionActive: softCorrectionTimerRef.current !== null,
+        correctionRate:
+          softCorrectionTimerRef.current !== null
+            ? Number(video.playbackRate.toFixed(3))
+            : null,
+        sourceVersion: sourceVersionRef.current,
+        bufferedAhead:
+          bufferedAhead === null ? null : Number(bufferedAhead.toFixed(3)),
+        lastMediaEvent: lastMediaEventRef.current,
+      };
+    },
+    [],
+  );
+
+  const logMediaEvent = useCallback(
+    (eventName: string, options?: { force?: boolean }) => {
+      const video = videoRef.current;
+      if (!video || !isWatchPartyDiagnosticsEnabled()) return;
+
+      const now = getNowMs();
+      if (
+        eventName === "timeupdate" &&
+        !options?.force &&
+        now - lastTimeUpdateTraceAtRef.current < 1000 &&
+        now > correctionTraceUntilRef.current
+      ) {
+        return;
+      }
+
+      if (eventName === "timeupdate") {
+        lastTimeUpdateTraceAtRef.current = now;
+      }
+      lastMediaEventRef.current = eventName;
+      logWatchPartyDiagnostic("[WP MEDIA EVENT]", {
+        event: eventName,
+        ...getMediaDiagnosticFields(video),
+      });
+    },
+    [getMediaDiagnosticFields],
+  );
+
+  const logMediaMutation = useCallback(
+    (
+      action: string,
+      reason: string,
+      extra: Record<string, unknown> = {},
+      command = latestRemoteCommandRef.current,
+    ) => {
+      const video = videoRef.current;
+      if (!video || !isWatchPartyDiagnosticsEnabled()) return;
+
+      logWatchPartyDiagnostic("[WP MEDIA MUTATION]", {
+        action,
+        reason,
+        ...extra,
+        ...getMediaDiagnosticFields(video, command),
+      });
+    },
+    [getMediaDiagnosticFields],
+  );
+
   const clearSoftCorrection = useCallback(
     (playbackRate?: number) => {
       if (softCorrectionTimerRef.current) {
@@ -270,11 +385,16 @@ export function usePlayer({
         targetRate > 0 &&
         video.playbackRate !== targetRate
       ) {
+        const previousRate = video.playbackRate;
         video.playbackRate = targetRate;
+        logMediaMutation("playbackRate", "clear-soft-correction", {
+          from: Number(previousRate.toFixed(3)),
+          to: Number(targetRate.toFixed(3)),
+        });
       }
       softCorrectionBaseRateRef.current = null;
     },
-    [],
+    [logMediaMutation],
   );
 
   const applySoftCorrection = useCallback(
@@ -286,16 +406,34 @@ export function usePlayer({
       softCorrectionBaseRateRef.current = baseRate;
       const correctionRate =
         baseRate * (drift > 0 ? 1 + rateDelta : 1 - rateDelta);
+      const previousRate = video.playbackRate;
       video.playbackRate = Math.max(0.1, correctionRate);
+      correctionTraceUntilRef.current = getNowMs() + SOFT_CORRECTION_DURATION_MS + 500;
+      logMediaMutation(
+        "playbackRate",
+        rateDelta > SOFT_CORRECTION_RATE_DELTA
+          ? "strong-soft-correction"
+          : "soft-correction",
+        {
+          from: Number(previousRate.toFixed(3)),
+          to: Number(video.playbackRate.toFixed(3)),
+          driftMs: Math.round(drift * 1000),
+        },
+      );
       softCorrectionTimerRef.current = setTimeout(() => {
         if (videoRef.current === video) {
+          const rateBeforeReset = video.playbackRate;
           video.playbackRate = baseRate;
+          logMediaMutation("playbackRate", "soft-correction-expired", {
+            from: Number(rateBeforeReset.toFixed(3)),
+            to: Number(baseRate.toFixed(3)),
+          });
         }
         softCorrectionTimerRef.current = null;
         softCorrectionBaseRateRef.current = null;
       }, SOFT_CORRECTION_DURATION_MS);
     },
-    [clearSoftCorrection],
+    [clearSoftCorrection, logMediaMutation],
   );
 
   const reconcilePlayingToRemoteTarget = useCallback(
@@ -307,6 +445,10 @@ export function usePlayer({
       const playbackRate = getCommandPlaybackRate(command);
       const rateBefore = video.playbackRate || playbackRate;
       video.playbackRate = playbackRate;
+      logMediaMutation("playbackRate", "remote-playing-base-rate", {
+        from: Number(rateBefore.toFixed(3)),
+        to: Number(playbackRate.toFixed(3)),
+      }, command);
 
       if (!Number.isFinite(targetTime)) return;
 
@@ -340,6 +482,11 @@ export function usePlayer({
 
       if (forceSnap || absDrift > PLAYING_DRIFT_STRONG_SOFT_SECONDS || video.ended) {
         clearSoftCorrection(playbackRate);
+        logMediaMutation("currentTime", "remote-playing-hard-correction", {
+          from: Number(localTime.toFixed(3)),
+          to: Number(nextTime.toFixed(3)),
+          driftMs: Math.round(drift * 1000),
+        }, command);
         video.currentTime = nextTime;
         setCurrentTime(video.currentTime);
         logSyncCorrection({
@@ -389,7 +536,7 @@ export function usePlayer({
         });
       }
     },
-    [applySoftCorrection, clearSoftCorrection, setCurrentTime, setEnded],
+    [applySoftCorrection, clearSoftCorrection, logMediaMutation, setCurrentTime, setEnded],
   );
 
   const applyRemotePlaybackCommand = useCallback(
@@ -402,11 +549,17 @@ export function usePlayer({
       const playbackRate = getCommandPlaybackRate(command);
       suppressPlaybackActionRef.current = true;
 
+      const commandRateBefore = video.playbackRate;
       video.playbackRate = playbackRate;
+      logMediaMutation("playbackRate", "remote-command-base-rate", {
+        from: Number(commandRateBefore.toFixed(3)),
+        to: Number(playbackRate.toFixed(3)),
+      }, command);
 
       if (!hasMetadata(video)) {
         pendingRemoteCommandRef.current = command;
         if (status === "PAUSED" && !video.paused) {
+          logMediaMutation("pause", "remote-paused-before-metadata", {}, command);
           video.pause();
         }
         return;
@@ -426,6 +579,11 @@ export function usePlayer({
         if (status === "PAUSED" || command.type === "seek") {
           clearSoftCorrection(playbackRate);
           if (drift > PAUSED_DRIFT_EPSILON_SECONDS || video.ended) {
+            logMediaMutation("currentTime", command.type === "seek" ? "remote-seek" : "remote-paused-snap", {
+              from: Number(video.currentTime.toFixed(3)),
+              to: Number(nextTime.toFixed(3)),
+              driftMs: Math.round((nextTime - video.currentTime) * 1000),
+            }, command);
             video.currentTime = nextTime;
             setCurrentTime(video.currentTime);
           }
@@ -433,6 +591,11 @@ export function usePlayer({
           reconcilePlayingToRemoteTarget(command, command.type === "play");
         } else if (drift > PLAYING_DRIFT_HARD_SECONDS || video.ended) {
           clearSoftCorrection(playbackRate);
+          logMediaMutation("currentTime", "remote-nonplaying-hard-correction", {
+            from: Number(video.currentTime.toFixed(3)),
+            to: Number(nextTime.toFixed(3)),
+            driftMs: Math.round((nextTime - video.currentTime) * 1000),
+          }, command);
           video.currentTime = nextTime;
           setCurrentTime(video.currentTime);
         }
@@ -446,6 +609,7 @@ export function usePlayer({
         };
         if (video.paused || video.ended) {
           setPlayPending(true);
+          logMediaMutation("play", "remote-playing-command", {}, command);
           await video.play().catch((error: unknown) => {
             if (version !== remoteCommandVersionRef.current) return;
             if (isAutoplayBlockedError(error)) {
@@ -462,6 +626,7 @@ export function usePlayer({
               getRemotePlaybackStatus(latestCommand) === "PAUSED" &&
               !video.paused
             ) {
+              logMediaMutation("pause", "remote-latest-paused-after-stale-play", {}, latestCommand);
               video.pause();
             }
             return;
@@ -472,6 +637,7 @@ export function usePlayer({
         remoteStartupCommandRef.current = null;
         clearSoftCorrection(playbackRate);
         if (!video.paused) {
+          logMediaMutation("pause", "remote-paused-command", {}, command);
           video.pause();
         } else {
           setPlayPending(false);
@@ -488,6 +654,7 @@ export function usePlayer({
     },
     [
       clearSoftCorrection,
+      logMediaMutation,
       reconcilePlayingToRemoteTarget,
       setAutoplayBlocked,
       setCurrentTime,
@@ -537,6 +704,7 @@ export function usePlayer({
 
     // Clean up previous instance
     if (hlsRef.current) {
+      logMediaMutation("hls.destroy", "source-change-cleanup");
       hlsRef.current.destroy();
     }
 
@@ -552,8 +720,37 @@ export function usePlayer({
         capLevelToPlayerSize: true, // Prevent loading 4K for small player
       });
 
+      logMediaMutation("hls.loadSource", "source-init", { src });
       hls.loadSource(src);
+      logMediaMutation("hls.attachMedia", "source-init", { src });
       hls.attachMedia(video);
+
+      [
+        Hls.Events.FRAG_LOADING,
+        Hls.Events.FRAG_LOADED,
+        Hls.Events.FRAG_BUFFERED,
+        Hls.Events.BUFFER_APPENDING,
+        Hls.Events.BUFFER_APPENDED,
+        Hls.Events.ERROR,
+      ].forEach((eventName) => {
+        hls.on(eventName, (_event: unknown, data: unknown) => {
+          logWatchPartyDiagnostic("[WP HLS]", {
+            event: eventName,
+            atMs: Math.round(getNowMs()),
+            sourceVersion: sourceVersionRef.current,
+            currentTime: Number(video.currentTime.toFixed(3)),
+            paused: video.paused,
+            readyState: video.readyState,
+            networkState: video.networkState,
+            playbackRate: Number(video.playbackRate.toFixed(3)),
+            seeking: video.seeking,
+            sequence: getRemoteSequence(latestRemoteCommandRef.current),
+            type: typeof data === "object" && data && "type" in data ? data.type : undefined,
+            details: typeof data === "object" && data && "details" in data ? data.details : undefined,
+            fatal: typeof data === "object" && data && "fatal" in data ? data.fatal : undefined,
+          });
+        });
+      });
 
       // Handle HLS events
       hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
@@ -569,6 +766,7 @@ export function usePlayer({
 
         // Auto-play if requested
         if (autoPlayRef.current) {
+          logMediaMutation("play", "manifest-parsed-autoplay");
           video.play().catch(() => {
             // Auto-play was prevented, that's OK
           });
@@ -577,6 +775,10 @@ export function usePlayer({
         // Seek to initial time only when a new media source is attached.
         const startTime = initialTimeRef.current;
         if (startTime > 0) {
+          logMediaMutation("currentTime", "initial-time-after-manifest", {
+            from: Number(video.currentTime.toFixed(3)),
+            to: Number(startTime.toFixed(3)),
+          });
           video.currentTime = startTime;
         }
       });
@@ -597,10 +799,12 @@ export function usePlayer({
                 onUrlExpiredRef.current?.();
               } else {
                 // Try to recover other network errors
+                logMediaMutation("hls.startLoad", "hls-network-error-recovery");
                 hls.startLoad();
               }
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
+              logMediaMutation("hls.recoverMediaError", "hls-media-error-recovery");
               hls.recoverMediaError();
               break;
             default:
@@ -615,12 +819,18 @@ export function usePlayer({
       hlsRef.current = hls;
     } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
       // Native HLS support (Safari)
+      logMediaMutation("src", "native-hls-source-init", { src });
       video.src = src;
       if (autoPlayRef.current) {
+        logMediaMutation("play", "native-hls-autoplay");
         video.play().catch(() => {});
       }
       const startTime = initialTimeRef.current;
       if (startTime > 0) {
+        logMediaMutation("currentTime", "native-hls-initial-time", {
+          from: Number(video.currentTime.toFixed(3)),
+          to: Number(startTime.toFixed(3)),
+        });
         video.currentTime = startTime;
       }
       setAvailableQualities(["auto"]);
@@ -640,6 +850,7 @@ export function usePlayer({
       }
       sourceTransitionRef.current = false;
       if (hlsRef.current) {
+        logMediaMutation("hls.destroy", "source-effect-cleanup");
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
@@ -647,6 +858,7 @@ export function usePlayer({
   }, [
     src,
     clearSoftCorrection,
+    logMediaMutation,
     setAvailableQualities,
     setQuality,
     setError,
@@ -665,6 +877,7 @@ export function usePlayer({
       }
     };
     const handlePlay = () => {
+      logMediaEvent("play", { force: true });
       // Media `play`/`pause` events are also emitted by HLS/browser lifecycle
       // changes (source replacement, MediaSource attach, recovery). They must
       // update local UI only. Watch Party host commands are emitted from the
@@ -672,6 +885,7 @@ export function usePlayer({
       setPlayPending(true);
     };
     const handlePause = () => {
+      logMediaEvent("pause", { force: true });
       const pendingCommand = pendingRemoteCommandRef.current;
       if (!pendingCommand || getRemotePlaybackStatus(pendingCommand) !== "PLAYING") {
         pendingRemoteCommandRef.current = null;
@@ -681,6 +895,7 @@ export function usePlayer({
       flushProgress("pause");
     };
     const handleEnded = () => {
+      logMediaEvent("ended", { force: true });
       if (endedCallbackFiredRef.current) return;
       endedCallbackFiredRef.current = true;
       flushProgress("ended");
@@ -694,6 +909,7 @@ export function usePlayer({
         getRemotePlaybackStatus(latestCommand) === "PAUSED" &&
         !video.paused
       ) {
+        logMediaMutation("pause", "confirm-playback-paused-authority", {}, latestCommand);
         video.pause();
         return false;
       }
@@ -725,6 +941,7 @@ export function usePlayer({
       return true;
     };
     const handleTimeUpdate = () => {
+      logMediaEvent("timeupdate");
       if (!video.paused && !video.ended && !isPlaying) {
         confirmPlaybackStarted();
       }
@@ -742,6 +959,7 @@ export function usePlayer({
       setDuration(video.duration);
     };
     const handleLoadedMetadata = () => {
+      logMediaEvent("loadedmetadata", { force: true });
       setDuration(video.duration);
       setError(null);
       const pendingCommand = pendingRemoteCommandRef.current;
@@ -755,12 +973,35 @@ export function usePlayer({
         setBufferedTime(video.buffered.end(video.buffered.length - 1));
       }
     };
-    const handleWaiting = () => setBuffering(true);
+    const handleWaiting = () => {
+      logMediaEvent("waiting", { force: true });
+      setBuffering(true);
+    };
+    const handleStalled = () => {
+      logMediaEvent("stalled", { force: true });
+    };
+    const handleSeeking = () => {
+      logMediaEvent("seeking", { force: true });
+    };
+    const handleSeeked = () => {
+      logMediaEvent("seeked", { force: true });
+    };
+    const handleRateChange = () => {
+      logMediaEvent("ratechange", { force: true });
+    };
+    const handleEmptied = () => {
+      logMediaEvent("emptied", { force: true });
+    };
     const handleCanPlay = () => {
+      logMediaEvent("canplay", { force: true });
       setBuffering(false);
       setError(null);
     };
+    const handleCanPlayThrough = () => {
+      logMediaEvent("canplaythrough", { force: true });
+    };
     const handlePlaying = () => {
+      logMediaEvent("playing", { force: true });
       confirmPlaybackStarted();
     };
     const handleVolumeChange = () => {
@@ -782,8 +1023,14 @@ export function usePlayer({
     video.addEventListener("durationchange", handleDurationChange);
     video.addEventListener("progress", handleProgress);
     video.addEventListener("waiting", handleWaiting);
+    video.addEventListener("stalled", handleStalled);
+    video.addEventListener("seeking", handleSeeking);
+    video.addEventListener("seeked", handleSeeked);
+    video.addEventListener("ratechange", handleRateChange);
     video.addEventListener("canplay", handleCanPlay);
+    video.addEventListener("canplaythrough", handleCanPlayThrough);
     video.addEventListener("playing", handlePlaying);
+    video.addEventListener("emptied", handleEmptied);
     video.addEventListener("volumechange", handleVolumeChange);
     video.addEventListener("error", handleError);
 
@@ -796,8 +1043,14 @@ export function usePlayer({
       video.removeEventListener("durationchange", handleDurationChange);
       video.removeEventListener("progress", handleProgress);
       video.removeEventListener("waiting", handleWaiting);
+      video.removeEventListener("stalled", handleStalled);
+      video.removeEventListener("seeking", handleSeeking);
+      video.removeEventListener("seeked", handleSeeked);
+      video.removeEventListener("ratechange", handleRateChange);
       video.removeEventListener("canplay", handleCanPlay);
+      video.removeEventListener("canplaythrough", handleCanPlayThrough);
       video.removeEventListener("playing", handlePlaying);
+      video.removeEventListener("emptied", handleEmptied);
       video.removeEventListener("volumechange", handleVolumeChange);
       video.removeEventListener("error", handleError);
     };
@@ -816,6 +1069,8 @@ export function usePlayer({
     setPlayPending,
     hideControls,
     isPlaying,
+    logMediaEvent,
+    logMediaMutation,
     onEnded,
     onError,
     onProgress,
@@ -965,7 +1220,12 @@ export function usePlayer({
       if (!video) return;
 
       clearSoftCorrection(video.playbackRate || playbackSpeed);
-      video.currentTime = getClampedPlaybackTime(video, time);
+      const nextTime = getClampedPlaybackTime(video, time);
+      logMediaMutation("currentTime", options?.silent ? "local-silent-seek" : "local-user-seek", {
+        from: Number(video.currentTime.toFixed(3)),
+        to: Number(nextTime.toFixed(3)),
+      });
+      video.currentTime = nextTime;
       setCurrentTime(video.currentTime);
       if (
         !options?.silent &&
@@ -979,7 +1239,7 @@ export function usePlayer({
         });
       }
     },
-    [clearSoftCorrection, onPlaybackAction, playbackSpeed, setCurrentTime],
+    [clearSoftCorrection, logMediaMutation, onPlaybackAction, playbackSpeed, setCurrentTime],
   );
 
   // Toggle play/pause
@@ -1005,10 +1265,15 @@ export function usePlayer({
       if (shouldReplay) {
         endedCallbackFiredRef.current = false;
         setEnded(false);
+        logMediaMutation("currentTime", "local-ended-replay", {
+          from: Number(video.currentTime.toFixed(3)),
+          to: 0,
+        });
         video.currentTime = 0;
         setCurrentTime(0);
       }
       setPlayPending(true);
+      logMediaMutation("play", "local-toggle-play");
       video.play().catch((error: unknown) => {
         if (isAutoplayBlockedError(error)) {
           setAutoplayBlocked(AUTOPLAY_BLOCKED_MESSAGE);
@@ -1019,6 +1284,7 @@ export function usePlayer({
     } else {
       pendingRemoteCommandRef.current = null;
       remoteStartupCommandRef.current = null;
+      logMediaMutation("pause", "local-toggle-pause");
       video.pause();
     }
 
@@ -1029,7 +1295,7 @@ export function usePlayer({
         playbackRate,
       });
     }
-  }, [onPlaybackAction, setAutoplayBlocked, setCurrentTime, setEnded, setError, setPlayPending]);
+  }, [logMediaMutation, onPlaybackAction, setAutoplayBlocked, setCurrentTime, setEnded, setError, setPlayPending]);
 
   // Fullscreen handlers
   const enterFullscreen = useCallback(async () => {

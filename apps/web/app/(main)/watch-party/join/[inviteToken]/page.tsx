@@ -52,6 +52,13 @@ import {
 import { ApiError, api, endpoints } from "@/lib/api-client";
 import { normalizeMediaUrl } from "@/lib/media-url";
 import { cn } from "@/lib/utils";
+import {
+  clearWatchPartyDiagnostics,
+  getWatchPartyDiagnosticLogText,
+  isWatchPartyDiagnosticsEnabled,
+  logWatchPartyDiagnostic,
+  markWatchPartyMicroFreeze,
+} from "@/lib/watch-party-diagnostics";
 import { useAuthStore } from "@/stores/auth.store";
 
 type RemoteCommand = {
@@ -191,6 +198,27 @@ function getEffectiveTime(
   const estimatedServerNow = Date.now() + (timing?.serverClockOffsetMs || 0);
   const elapsed = Math.max(0, (estimatedServerNow - serverTime) / 1000);
   return getAuthoritativeCurrentTime(state) + elapsed * (state.playbackRate || 1);
+}
+
+function logPlaybackReconciliationTrace(
+  eventType: "state" | "play" | "pause" | "seek" | "sync",
+  state: WatchPartyPlaybackState,
+  fields: Record<string, unknown>,
+) {
+  logWatchPartyDiagnostic("[WP RECONCILE]", {
+    eventType,
+    atMs:
+      typeof performance !== "undefined"
+        ? Math.round(performance.now())
+        : Date.now(),
+    sequence: state.sequence,
+    status: state.playbackStatus,
+    currentTime: state.currentTime,
+    effectiveCurrentTime: state.effectiveCurrentTime,
+    updatedAt: state.updatedAt,
+    serverTime: state.serverTime,
+    ...fields,
+  });
 }
 
 function getParticipantName(participant: WatchPartyParticipant) {
@@ -657,6 +685,8 @@ function WatchPartyJoinPageContent() {
   const [isSyncingPlayback, setIsSyncingPlayback] = React.useState(false);
   const [syncError, setSyncError] = React.useState<string | null>(null);
   const [roomEndedOverlay, setRoomEndedOverlay] = React.useState(false);
+  const [diagnosticsCopied, setDiagnosticsCopied] = React.useState(false);
+  const diagnosticsEnabled = isWatchPartyDiagnosticsEnabled();
 
   const chatListRef = React.useRef<HTMLDivElement>(null);
   const reactionTimersRef = React.useRef<Map<string, number>>(new Map());
@@ -774,16 +804,29 @@ function WatchPartyJoinPageContent() {
       // correcting that drift on every poll produces the visible stop/start effect.
       // Only hard-correct passive state when the client is genuinely far behind.
       const shouldCorrectDrift = drift > DRIFT_LARGE_SECONDS;
-
-      if (
+      const willSetRemoteCommand =
         eventType === "sync" ||
         isControlEvent ||
-        (!isHostRef.current && (eventType === "state" || shouldCorrectDrift))
-      ) {
+        (!isHostRef.current && (eventType === "state" || shouldCorrectDrift));
+
+      if (diagnosticsEnabled) {
+        logPlaybackReconciliationTrace(eventType, state, {
+          localTime: Number(localTimeRef.current.toFixed(3)),
+          computedTarget: Number(getEffectiveTime(state, timing).toFixed(3)),
+          driftMs: Math.round(drift * 1000),
+          isHost: isHostRef.current,
+          isControlEvent,
+          shouldCorrectDrift,
+          willSetRemoteCommand,
+          serverClockOffsetMs: Math.round(timing.serverClockOffsetMs),
+        });
+      }
+
+      if (willSetRemoteCommand) {
         setRemoteCommand(toRemoteCommand(state, eventType, timing));
       }
     },
-    [getPlaybackTiming, observePlaybackTiming],
+    [diagnosticsEnabled, getPlaybackTiming, observePlaybackTiming],
   );
 
   const addFloatingReaction = React.useCallback((event: WatchPartyReactionEvent) => {
@@ -1344,6 +1387,29 @@ function WatchPartyJoinPageContent() {
     room?.id,
     room?.status,
   ]);
+
+  const handleCopyDiagnostics = React.useCallback(async () => {
+    const text = getWatchPartyDiagnosticLogText();
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      setDiagnosticsCopied(true);
+      toast.success("WP Diagnostics copied");
+    } else {
+      toast.error("Clipboard unavailable");
+    }
+  }, []);
+
+  const handleClearDiagnostics = React.useCallback(() => {
+    clearWatchPartyDiagnostics();
+    setDiagnosticsCopied(false);
+    toast.message("WP Diagnostics cleared");
+  }, []);
+
+  const handleMarkFreeze = React.useCallback(() => {
+    markWatchPartyMicroFreeze();
+    setDiagnosticsCopied(false);
+    toast.message("WP micro-freeze marked");
+  }, []);
 
   const handleLeave = React.useCallback(() => {
     setConfirmAction("leave");
@@ -2103,6 +2169,38 @@ function WatchPartyJoinPageContent() {
                 <DoorOpen className="h-4 w-4" />
                 Покинуть комнату
               </Button>
+              {diagnosticsEnabled && (
+                <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-black/35 px-2 py-1 text-xs text-white/80">
+                  <span className="font-semibold text-white">WP Diagnostics</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-white/85 hover:text-white"
+                    onClick={handleCopyDiagnostics}
+                  >
+                    {diagnosticsCopied ? "Copied" : "Copy logs"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-white/85 hover:text-white"
+                    onClick={handleMarkFreeze}
+                  >
+                    Mark freeze
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-white/85 hover:text-white"
+                    onClick={handleClearDiagnostics}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              )}
               {isHost && (
                 <Button
                   variant="secondary"
