@@ -7,6 +7,8 @@ export type WatchPartyDiagnosticLabel =
   | "[WP MEDIA EVENT]"
   | "[WP HLS]"
   | "[WP PLAYER]"
+  | "[WP PLAY RECOVERY]"
+  | "[WP SYNC RECOVERY]"
   | "[WP Sync Correction]"
   | "[WP USER MARK]";
 

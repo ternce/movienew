@@ -400,6 +400,98 @@ describe("usePlayer Watch Party remote sync", () => {
     expect(state.paused).toBe(false);
   });
 
+  it("keeps authoritative play pending until media actually starts", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 706,
+      duration: 1200,
+      paused: true,
+      ended: false,
+      readyState: 4,
+      currentTimeWrites: 0,
+      playbackRateWrites: 0,
+    };
+    installVideoState(video, state, () => Promise.resolve());
+
+    rerender(<Harness remoteCommand={command(90, "PLAYING", 706)} />);
+    await act(async () => {});
+
+    expect(video.play).toHaveBeenCalledTimes(1);
+    expect(storeActions.play).not.toHaveBeenCalled();
+
+    rerender(<Harness remoteCommand={command(91, "PLAYING", 708.365)} />);
+    await act(async () => {});
+    rerender(<Harness remoteCommand={command(92, "PLAYING", 710.751)} />);
+    await act(async () => {});
+
+    expect(video.play).toHaveBeenCalledTimes(1);
+    expect(state.currentTimeWrites).toBe(0);
+    expect(state.playbackRateWrites).toBe(0);
+    expect(storeActions.play).not.toHaveBeenCalled();
+  });
+
+  it("confirms pending authoritative play on the playing event", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 5,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 4,
+    };
+    installVideoState(video, state, () => Promise.resolve());
+
+    rerender(<Harness remoteCommand={command(93, "PLAYING", 5)} />);
+    await act(async () => {});
+
+    act(() => {
+      state.paused = false;
+      video.dispatchEvent(new Event("playing"));
+    });
+
+    expect(storeActions.play).toHaveBeenCalledTimes(1);
+    expect(console.debug).toHaveBeenCalledWith(
+      "[WP PLAY RECOVERY]",
+      expect.objectContaining({
+        event: "CONFIRMED",
+        sequence: "93",
+      }),
+    );
+  });
+
+  it("confirms pending authoritative play on advancing timeupdate", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 5,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 4,
+    };
+    installVideoState(video, state, () => Promise.resolve());
+
+    rerender(<Harness remoteCommand={command(94, "PLAYING", 5)} />);
+    await act(async () => {});
+
+    act(() => {
+      state.paused = false;
+      state.currentTime = 5.2;
+      video.dispatchEvent(new Event("timeupdate"));
+    });
+
+    expect(storeActions.play).toHaveBeenCalledTimes(1);
+    expect(console.debug).toHaveBeenCalledWith(
+      "[WP PLAY RECOVERY]",
+      expect.objectContaining({
+        event: "CONFIRMED",
+        sequence: "94",
+      }),
+    );
+  });
+
   it("applies host pause immediately", async () => {
     const { rerender } = render(<Harness remoteCommand={null} />);
     const video = screen.getByTestId("video") as HTMLVideoElement;
@@ -744,6 +836,94 @@ describe("usePlayer Watch Party remote sync", () => {
     expect(storeActions.setCurrentTime).not.toHaveBeenCalled();
   });
 
+  it("upgrades soft correction directly to strong soft without base reset", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+
+    rerender(<Harness remoteCommand={command(95, "PLAYING", 10.3)} />);
+    await act(async () => {});
+    expect(state.playbackRate).toBeCloseTo(1.03);
+
+    rerender(<Harness remoteCommand={command(96, "PLAYING", 10.8)} />);
+    await act(async () => {});
+
+    expect(state.playbackRate).toBeCloseTo(1.055);
+    expect(console.debug).not.toHaveBeenCalledWith(
+      "[WP MEDIA MUTATION]",
+      expect.objectContaining({
+        action: "playbackRate",
+        from: 1.03,
+        to: 1,
+      }),
+    );
+  });
+
+  it("completes active correction with one base-rate restore after convergence", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1,
+      playbackRateWrites: 0,
+    };
+    installVideoState(video, state);
+
+    rerender(<Harness remoteCommand={command(97, "PLAYING", 10.8)} />);
+    await act(async () => {});
+    expect(state.playbackRate).toBeCloseTo(1.055);
+    const writesAfterCorrection = state.playbackRateWrites || 0;
+
+    rerender(<Harness remoteCommand={command(98, "PLAYING", 10.05)} />);
+    await act(async () => {});
+
+    expect(state.playbackRate).toBe(1);
+    expect(state.playbackRateWrites || 0).toBe(writesAfterCorrection + 1);
+  });
+
+  it("reverses correction direction without an intermediate base-rate reset", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+
+    rerender(<Harness remoteCommand={command(99, "PLAYING", 10.3)} />);
+    await act(async () => {});
+    expect(state.playbackRate).toBeCloseTo(1.03);
+
+    rerender(<Harness remoteCommand={command(100, "PLAYING", 9.7)} />);
+    await act(async () => {});
+
+    expect(state.playbackRate).toBeCloseTo(0.97);
+    expect(console.debug).not.toHaveBeenCalledWith(
+      "[WP MEDIA MUTATION]",
+      expect.objectContaining({
+        action: "playbackRate",
+        from: 1.03,
+        to: 1,
+      }),
+    );
+  });
+
   it("uses strong soft slow-down for medium ahead drift", async () => {
     const { rerender } = render(<Harness remoteCommand={null} />);
     const video = screen.getByTestId("video") as HTMLVideoElement;
@@ -934,7 +1114,7 @@ describe("usePlayer Watch Party remote sync", () => {
     expect(console.debug).not.toHaveBeenCalled();
   });
 
-  it("diagnoses passive state restarting an active soft correction", async () => {
+  it("keeps an active same-direction correction across passive updates", async () => {
     vi.useFakeTimers();
     const { rerender } = render(<Harness remoteCommand={null} />);
     const video = screen.getByTestId("video") as HTMLVideoElement;
@@ -959,9 +1139,9 @@ describe("usePlayer Watch Party remote sync", () => {
     rerender(<Harness remoteCommand={command(72, "PLAYING", 10.35)} />);
     await act(async () => {});
 
-    expect(state.playbackRateWrites || 0).toBeGreaterThan(writesAfterFirstCorrection);
+    expect(state.playbackRateWrites || 0).toBe(writesAfterFirstCorrection);
     expect(state.playbackRate).toBeGreaterThan(1);
-    expect(console.debug).toHaveBeenCalledWith(
+    expect(console.debug).not.toHaveBeenCalledWith(
       "[WP MEDIA MUTATION]",
       expect.objectContaining({
         action: "playbackRate",
@@ -1067,7 +1247,125 @@ describe("usePlayer Watch Party remote sync", () => {
     expect(video.pause).not.toHaveBeenCalled();
   });
 
-  it("counts mutations across multiple passive states in five seconds", async () => {
+  it("suppresses passive hard seeks and new corrections while stalled recovery is active", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1,
+      currentTimeWrites: 0,
+      playbackRateWrites: 0,
+    };
+    installVideoState(video, state);
+
+    rerender(<Harness remoteCommand={command(101, "PLAYING", 10.8)} />);
+    await act(async () => {});
+    expect(state.playbackRate).toBeCloseTo(1.055);
+    const writesAfterCorrection = state.playbackRateWrites || 0;
+
+    act(() => {
+      video.dispatchEvent(new Event("stalled"));
+    });
+    vi.clearAllMocks();
+
+    rerender(<Harness remoteCommand={command(102, "PLAYING", 12)} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(10);
+    expect(state.currentTimeWrites).toBe(0);
+    expect(state.playbackRateWrites || 0).toBe(writesAfterCorrection);
+    expect(video.play).not.toHaveBeenCalled();
+    expect(video.pause).not.toHaveBeenCalled();
+    expect(console.debug).toHaveBeenCalledWith(
+      "[WP Sync Correction]",
+      expect.objectContaining({
+        reason: "media-recovery",
+        type: "IGNORE",
+      }),
+    );
+  });
+
+  it("allows normal correction again after stalled media resumes progressing", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+
+    act(() => {
+      video.dispatchEvent(new Event("stalled"));
+      video.dispatchEvent(new Event("playing"));
+    });
+    vi.clearAllMocks();
+
+    rerender(<Harness remoteCommand={command(103, "PLAYING", 10.8)} />);
+    await act(async () => {});
+
+    expect(state.playbackRate).toBeCloseTo(1.055);
+    expect(console.debug).toHaveBeenCalledWith(
+      "[WP Sync Correction]",
+      expect.objectContaining({
+        type: "STRONG_SOFT",
+      }),
+    );
+  });
+
+  it("keeps explicit host seek authoritative during stalled recovery", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+
+    act(() => {
+      video.dispatchEvent(new Event("stalled"));
+    });
+    rerender(<Harness remoteCommand={command(104, "PLAYING", 42, "seek")} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(42);
+  });
+
+  it("keeps explicit host pause authoritative during stalled recovery", async () => {
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+
+    act(() => {
+      video.dispatchEvent(new Event("waiting"));
+    });
+    rerender(<Harness remoteCommand={command(105, "PAUSED", 11, "pause")} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(11);
+    expect(state.paused).toBe(true);
+  });
+
+  it("avoids playbackRate reset/restart thrash across multiple passive states", async () => {
     vi.useFakeTimers();
     const { rerender } = render(<Harness remoteCommand={null} />);
     const video = screen.getByTestId("video") as HTMLVideoElement;
@@ -1095,7 +1393,17 @@ describe("usePlayer Watch Party remote sync", () => {
     expect(state.currentTimeWrites).toBe(0);
     expect(video.play).not.toHaveBeenCalled();
     expect(video.pause).not.toHaveBeenCalled();
-    expect(state.playbackRateWrites || 0).toBeGreaterThan(5);
+    expect(state.playbackRateWrites || 0).toBeLessThanOrEqual(5);
+    expect(console.debug).not.toHaveBeenCalledWith(
+      "[WP MEDIA MUTATION]",
+      expect.objectContaining({
+        action: "playbackRate",
+        from: expect.any(Number),
+        reason: "remote-command-base-rate",
+        softCorrectionActive: true,
+        to: 1,
+      }),
+    );
   });
 
   it("hard-corrects even small drift when seeking", async () => {

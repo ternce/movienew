@@ -132,10 +132,42 @@ type RemoteStartupCommand = {
   command: PlaybackRemoteCommand;
   version: number;
   sourceVersion: number;
+  requestedAt: number;
+  lastTarget: number | null;
+  awaitingProgress: boolean;
+  playRequested: boolean;
+  lastObservedTime: number;
 };
 
-type SyncCorrectionType = "IGNORE" | "SOFT" | "STRONG_SOFT" | "HARD";
+type SyncCorrectionType =
+  | "IGNORE"
+  | "SOFT"
+  | "STRONG_SOFT"
+  | "HARD"
+  | "KEEP"
+  | "UPGRADE"
+  | "DOWNGRADE"
+  | "COMPLETE"
+  | "REVERSE";
 type PlaybackEngine = "hls.js" | "native-hls" | "native-file";
+type SyncCorrectionDirection = "behind" | "ahead";
+
+type ActiveSyncCorrection = {
+  baseRate: number;
+  effectiveRate: number;
+  direction: SyncCorrectionDirection;
+  type: Extract<SyncCorrectionType, "SOFT" | "STRONG_SOFT">;
+  sourceVersion: number;
+  sequence: string | null;
+  generation: number;
+};
+
+type MediaRecoveryState = {
+  sourceVersion: number;
+  sequence: string | null;
+  enteredAt: number;
+  lastTime: number;
+};
 
 function getNowMs() {
   return typeof performance !== "undefined" ? performance.now() : Date.now();
@@ -146,6 +178,10 @@ function getCorrectionReason(command: PlaybackRemoteCommand) {
   if (id.includes(":sync:")) return "sync";
   if (id.includes(":state:")) return "passive-state";
   return command.type;
+}
+
+function isPassivePlayingSnapshot(command: PlaybackRemoteCommand) {
+  return command.type === "state" && getRemotePlaybackStatus(command) === "PLAYING";
 }
 
 function logSyncCorrection(details: {
@@ -279,6 +315,10 @@ export function usePlayer({
   const remoteStartupCommandRef = useRef<RemoteStartupCommand | null>(null);
   const sourceVersionRef = useRef(0);
   const playbackEngineRef = useRef<PlaybackEngine>("native-file");
+  const authoritativeBaseRateRef = useRef(1);
+  const activeCorrectionRef = useRef<ActiveSyncCorrection | null>(null);
+  const correctionGenerationRef = useRef(0);
+  const mediaRecoveryRef = useRef<MediaRecoveryState | null>(null);
   const softCorrectionBaseRateRef = useRef<number | null>(null);
   const softCorrectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -371,6 +411,8 @@ export function usePlayer({
         sequence: getRemoteSequence(command),
         remoteType: command?.type || null,
         softCorrectionActive: softCorrectionTimerRef.current !== null,
+        mediaRecoveryActive: mediaRecoveryRef.current !== null,
+        playRecoveryPending: remoteStartupCommandRef.current?.awaitingProgress || false,
         correctionRate:
           softCorrectionTimerRef.current !== null
             ? Number(video.playbackRate.toFixed(3))
@@ -439,6 +481,7 @@ export function usePlayer({
         clearTimeout(softCorrectionTimerRef.current);
         softCorrectionTimerRef.current = null;
       }
+      correctionGenerationRef.current += 1;
 
       const targetRate = playbackRate ?? softCorrectionBaseRateRef.current;
       const video = videoRef.current;
@@ -456,47 +499,159 @@ export function usePlayer({
         });
       }
       softCorrectionBaseRateRef.current = null;
+      activeCorrectionRef.current = null;
+    },
+    [logMediaMutation],
+  );
+
+  const setAuthoritativeBaseRate = useCallback(
+    (
+      playbackRate: number,
+      reason: string,
+      command: PlaybackRemoteCommand,
+    ) => {
+      const video = videoRef.current;
+      if (!video || playbackRate <= 0) return;
+
+      authoritativeBaseRateRef.current = playbackRate;
+      softCorrectionBaseRateRef.current = playbackRate;
+      if (activeCorrectionRef.current) {
+        activeCorrectionRef.current.baseRate = playbackRate;
+        return;
+      }
+
+      if (video.playbackRate === playbackRate) return;
+      const rateBefore = video.playbackRate;
+      video.playbackRate = playbackRate;
+      logMediaMutation("playbackRate", reason, {
+        from: Number(rateBefore.toFixed(3)),
+        to: Number(playbackRate.toFixed(3)),
+      }, command);
     },
     [logMediaMutation],
   );
 
   const applySoftCorrection = useCallback(
-    (baseRate: number, drift: number, rateDelta = SOFT_CORRECTION_RATE_DELTA) => {
+    (
+      baseRate: number,
+      drift: number,
+      type: Extract<SyncCorrectionType, "SOFT" | "STRONG_SOFT">,
+      command: PlaybackRemoteCommand,
+    ) => {
       const video = videoRef.current;
       if (!video) return;
 
-      clearSoftCorrection();
-      softCorrectionBaseRateRef.current = baseRate;
+      const rateDelta =
+        type === "STRONG_SOFT"
+          ? STRONG_SOFT_CORRECTION_RATE_DELTA
+          : SOFT_CORRECTION_RATE_DELTA;
+      const direction: SyncCorrectionDirection = drift > 0 ? "behind" : "ahead";
       const correctionRate =
-        baseRate * (drift > 0 ? 1 + rateDelta : 1 - rateDelta);
+        baseRate * (direction === "behind" ? 1 + rateDelta : 1 - rateDelta);
+      const effectiveRate = Math.max(0.1, correctionRate);
+      const activeCorrection = activeCorrectionRef.current;
+
+      if (activeCorrection && activeCorrection.direction === direction) {
+        activeCorrection.baseRate = baseRate;
+        activeCorrection.sequence = getRemoteSequence(command);
+        if (
+          activeCorrection.type === type ||
+          (activeCorrection.type === "STRONG_SOFT" && type === "SOFT")
+        ) {
+          logSyncCorrection({
+            reason: getCorrectionReason(command),
+            type: activeCorrection.type === type ? "KEEP" : "DOWNGRADE",
+            local: video.currentTime,
+            target: getClampedPlaybackTime(video, getCommandTargetTime(command)),
+            drift,
+            rateBefore: video.playbackRate,
+            rateAfter: video.playbackRate,
+            command,
+            playbackEngine: playbackEngineRef.current,
+          });
+          return;
+        }
+      }
+
+      const generation = correctionGenerationRef.current + 1;
+      correctionGenerationRef.current = generation;
+      if (softCorrectionTimerRef.current) {
+        clearTimeout(softCorrectionTimerRef.current);
+        softCorrectionTimerRef.current = null;
+      }
+      softCorrectionBaseRateRef.current = baseRate;
       const previousRate = video.playbackRate;
-      video.playbackRate = Math.max(0.1, correctionRate);
+      video.playbackRate = effectiveRate;
+      activeCorrectionRef.current = {
+        baseRate,
+        effectiveRate,
+        direction,
+        type,
+        sourceVersion: sourceVersionRef.current,
+        sequence: getRemoteSequence(command),
+        generation,
+      };
       correctionTraceUntilRef.current = getNowMs() + SOFT_CORRECTION_DURATION_MS + 500;
+      const lifecycleType: SyncCorrectionType | null =
+        activeCorrection && activeCorrection.direction !== direction
+          ? "REVERSE"
+          : activeCorrection?.type === "SOFT" && type === "STRONG_SOFT"
+            ? "UPGRADE"
+            : null;
+      const reason =
+        lifecycleType === "REVERSE"
+          ? "reverse-soft-correction"
+          : lifecycleType === "UPGRADE"
+            ? "upgrade-soft-correction"
+            : type === "STRONG_SOFT"
+              ? "strong-soft-correction"
+              : "soft-correction";
       logMediaMutation(
         "playbackRate",
-        rateDelta > SOFT_CORRECTION_RATE_DELTA
-          ? "strong-soft-correction"
-          : "soft-correction",
+        reason,
         {
           from: Number(previousRate.toFixed(3)),
           to: Number(video.playbackRate.toFixed(3)),
           driftMs: Math.round(drift * 1000),
         },
+        command,
       );
+      if (lifecycleType) {
+        logSyncCorrection({
+          reason: getCorrectionReason(command),
+          type: lifecycleType,
+          local: video.currentTime,
+          target: getClampedPlaybackTime(video, getCommandTargetTime(command)),
+          drift,
+          rateBefore: previousRate,
+          rateAfter: video.playbackRate,
+          command,
+          playbackEngine: playbackEngineRef.current,
+        });
+      }
       softCorrectionTimerRef.current = setTimeout(() => {
-        if (videoRef.current === video) {
+        const latestCorrection = activeCorrectionRef.current;
+        if (
+          videoRef.current === video &&
+          latestCorrection?.generation === generation &&
+          latestCorrection.sourceVersion === sourceVersionRef.current
+        ) {
           const rateBeforeReset = video.playbackRate;
-          video.playbackRate = baseRate;
-          logMediaMutation("playbackRate", "soft-correction-expired", {
-            from: Number(rateBeforeReset.toFixed(3)),
-            to: Number(baseRate.toFixed(3)),
-          });
+          const targetRate = latestCorrection.baseRate;
+          if (rateBeforeReset !== targetRate) {
+            video.playbackRate = targetRate;
+            logMediaMutation("playbackRate", "soft-correction-expired", {
+              from: Number(rateBeforeReset.toFixed(3)),
+              to: Number(targetRate.toFixed(3)),
+            }, command);
+          }
+          activeCorrectionRef.current = null;
+          softCorrectionBaseRateRef.current = null;
         }
         softCorrectionTimerRef.current = null;
-        softCorrectionBaseRateRef.current = null;
       }, SOFT_CORRECTION_DURATION_MS);
     },
-    [clearSoftCorrection, logMediaMutation],
+    [logMediaMutation],
   );
 
   const reconcilePlayingToRemoteTarget = useCallback(
@@ -507,11 +662,7 @@ export function usePlayer({
       const targetTime = Number(getCommandTargetTime(command));
       const playbackRate = getCommandPlaybackRate(command);
       const rateBefore = video.playbackRate || playbackRate;
-      video.playbackRate = playbackRate;
-      logMediaMutation("playbackRate", "remote-playing-base-rate", {
-        from: Number(rateBefore.toFixed(3)),
-        to: Number(playbackRate.toFixed(3)),
-      }, command);
+      setAuthoritativeBaseRate(playbackRate, "remote-playing-base-rate", command);
 
       if (!Number.isFinite(targetTime)) return;
 
@@ -528,6 +679,29 @@ export function usePlayer({
       const reason = getCorrectionReason(command);
       const isPassiveHealthyPlayback =
         command.type === "state" && !forceSnap && !video.ended;
+      const pendingPlay = remoteStartupCommandRef.current;
+      const isPendingPlayRecovery =
+        pendingPlay?.awaitingProgress &&
+        pendingPlay.sourceVersion === sourceVersionRef.current &&
+        isPassivePlayingSnapshot(command);
+      const isMediaRecoveryActive =
+        mediaRecoveryRef.current?.sourceVersion === sourceVersionRef.current &&
+        isPassivePlayingSnapshot(command);
+
+      if (isPendingPlayRecovery || isMediaRecoveryActive) {
+        logSyncCorrection({
+          reason: isPendingPlayRecovery ? "play-recovery" : "media-recovery",
+          type: "IGNORE",
+          local: localTime,
+          target: nextTime,
+          drift,
+          rateBefore,
+          rateAfter: video.playbackRate || playbackRate,
+          command,
+          playbackEngine: playbackEngineRef.current,
+        });
+        return;
+      }
 
       if (isPassiveHealthyPlayback && video.readyState < 3 && absDrift <= PLAYING_DRIFT_STRONG_SOFT_SECONDS) {
         logSyncCorrection({
@@ -565,7 +739,7 @@ export function usePlayer({
           playbackEngine: playbackEngineRef.current,
         });
       } else if (absDrift > PLAYING_DRIFT_SOFT_SECONDS) {
-        applySoftCorrection(playbackRate, drift, STRONG_SOFT_CORRECTION_RATE_DELTA);
+        applySoftCorrection(playbackRate, drift, "STRONG_SOFT", command);
         logSyncCorrection({
           reason,
           type: "STRONG_SOFT",
@@ -578,7 +752,7 @@ export function usePlayer({
           playbackEngine: playbackEngineRef.current,
         });
       } else if (absDrift > PLAYING_DRIFT_IGNORE_SECONDS) {
-        applySoftCorrection(playbackRate, drift);
+        applySoftCorrection(playbackRate, drift, "SOFT", command);
         logSyncCorrection({
           reason,
           type: "SOFT",
@@ -602,9 +776,23 @@ export function usePlayer({
           command,
           playbackEngine: playbackEngineRef.current,
         });
+        if (activeCorrectionRef.current) {
+          clearSoftCorrection(playbackRate);
+          logSyncCorrection({
+            reason,
+            type: "COMPLETE",
+            local: localTime,
+            target: nextTime,
+            drift,
+            rateBefore,
+            rateAfter: video.playbackRate || playbackRate,
+            command,
+            playbackEngine: playbackEngineRef.current,
+          });
+        }
       }
     },
-    [applySoftCorrection, clearSoftCorrection, logMediaMutation, setCurrentTime, setEnded],
+    [applySoftCorrection, clearSoftCorrection, logMediaMutation, setAuthoritativeBaseRate, setCurrentTime, setEnded],
   );
 
   const applyRemotePlaybackCommand = useCallback(
@@ -617,15 +805,15 @@ export function usePlayer({
       const playbackRate = getCommandPlaybackRate(command);
       suppressPlaybackActionRef.current = true;
 
-      const commandRateBefore = video.playbackRate;
-      video.playbackRate = playbackRate;
-      logMediaMutation("playbackRate", "remote-command-base-rate", {
-        from: Number(commandRateBefore.toFixed(3)),
-        to: Number(playbackRate.toFixed(3)),
-      }, command);
+      setAuthoritativeBaseRate(playbackRate, "remote-command-base-rate", command);
 
       if (!hasMetadata(video)) {
         pendingRemoteCommandRef.current = command;
+        if (status === "PAUSED") {
+          mediaRecoveryRef.current = null;
+          remoteStartupCommandRef.current = null;
+          clearSoftCorrection(playbackRate);
+        }
         if (status === "PAUSED" && !video.paused) {
           logMediaMutation("pause", "remote-paused-before-metadata", {}, command);
           video.pause();
@@ -645,9 +833,27 @@ export function usePlayer({
 
         const drift = Math.abs(video.currentTime - nextTime);
         if (status === "PAUSED" || command.type === "seek") {
+          mediaRecoveryRef.current = null;
+          remoteStartupCommandRef.current = null;
           clearSoftCorrection(playbackRate);
           if (drift > PAUSED_DRIFT_EPSILON_SECONDS || video.ended) {
             logMediaMutation("currentTime", command.type === "seek" ? "remote-seek" : "remote-paused-snap", {
+              from: Number(video.currentTime.toFixed(3)),
+              to: Number(nextTime.toFixed(3)),
+              driftMs: Math.round((nextTime - video.currentTime) * 1000),
+            }, command);
+            video.currentTime = nextTime;
+            setCurrentTime(video.currentTime);
+          }
+        } else if (status === "PLAYING" && (video.paused || video.ended)) {
+          const pendingPlay = remoteStartupCommandRef.current;
+          const shouldAlign =
+            !pendingPlay ||
+            command.type === "play" ||
+            video.ended;
+          if (shouldAlign && (drift > PAUSED_DRIFT_EPSILON_SECONDS || video.ended)) {
+            clearSoftCorrection(playbackRate);
+            logMediaMutation("currentTime", "remote-playing-start-alignment", {
               from: Number(video.currentTime.toFixed(3)),
               to: Number(nextTime.toFixed(3)),
               driftMs: Math.round((nextTime - video.currentTime) * 1000),
@@ -670,18 +876,48 @@ export function usePlayer({
       }
 
       if (status === "PLAYING") {
-        remoteStartupCommandRef.current = {
-          command,
-          version,
-          sourceVersion: sourceVersionRef.current,
-        };
         if (video.paused || video.ended) {
+          const pendingPlay = remoteStartupCommandRef.current;
+          const shouldRequestPlay =
+            !pendingPlay ||
+            pendingPlay.sourceVersion !== sourceVersionRef.current ||
+            !pendingPlay.playRequested ||
+            command.type === "play";
+          remoteStartupCommandRef.current = {
+            command,
+            version,
+            sourceVersion: sourceVersionRef.current,
+            requestedAt: pendingPlay?.requestedAt ?? getNowMs(),
+            lastTarget: Number.isFinite(targetTime)
+              ? getClampedPlaybackTime(video, targetTime)
+              : pendingPlay?.lastTarget ?? null,
+            awaitingProgress: true,
+            playRequested: pendingPlay?.playRequested || shouldRequestPlay,
+            lastObservedTime: video.currentTime,
+          };
           setPlayPending(true);
+          logWatchPartyDiagnostic("[WP PLAY RECOVERY]", {
+            event: "START",
+            alreadyPending: Boolean(pendingPlay),
+            playRequested: shouldRequestPlay,
+            ...getMediaDiagnosticFields(video, command),
+            sequence: getRemoteSequence(command),
+            sourceVersion: sourceVersionRef.current,
+          });
+          if (!shouldRequestPlay) {
+            return;
+          }
           logMediaMutation("play", "remote-playing-command", {}, command);
           await video.play().catch((error: unknown) => {
             if (version !== remoteCommandVersionRef.current) return;
             if (isAutoplayBlockedError(error)) {
               pendingRemoteCommandRef.current = command;
+              logWatchPartyDiagnostic("[WP PLAY RECOVERY]", {
+                event: "BLOCKED",
+                ...getMediaDiagnosticFields(video, command),
+                sequence: getRemoteSequence(command),
+                sourceVersion: sourceVersionRef.current,
+              });
               setAutoplayBlocked(AUTOPLAY_BLOCKED_MESSAGE);
             } else {
               setError("Ошибка воспроизведения");
@@ -701,7 +937,17 @@ export function usePlayer({
           }
         }
       } else if (status === "PAUSED") {
+        mediaRecoveryRef.current = null;
         pendingRemoteCommandRef.current = null;
+        if (remoteStartupCommandRef.current) {
+          logWatchPartyDiagnostic("[WP PLAY RECOVERY]", {
+            event: "CANCEL",
+            reason: "pause",
+            ...getMediaDiagnosticFields(video, command),
+            sequence: getRemoteSequence(command),
+            sourceVersion: sourceVersionRef.current,
+          });
+        }
         remoteStartupCommandRef.current = null;
         clearSoftCorrection(playbackRate);
         if (!video.paused) {
@@ -722,8 +968,10 @@ export function usePlayer({
     },
     [
       clearSoftCorrection,
+      getMediaDiagnosticFields,
       logMediaMutation,
       reconcilePlayingToRemoteTarget,
+      setAuthoritativeBaseRate,
       setAutoplayBlocked,
       setCurrentTime,
       setEnded,
@@ -750,6 +998,7 @@ export function usePlayer({
     sourceVersionRef.current += 1;
     pendingRemoteCommandRef.current = null;
     remoteStartupCommandRef.current = null;
+    mediaRecoveryRef.current = null;
     setError(null);
     setAutoplayBlocked(null);
     setPlayPending(false);
@@ -1012,16 +1261,31 @@ export function usePlayer({
       }
 
       const startupCommand = remoteStartupCommandRef.current;
+      remoteStartupCommandRef.current = null;
+      pendingRemoteCommandRef.current = null;
       if (
         startupCommand &&
         startupCommand.version === remoteCommandVersionRef.current &&
         startupCommand.sourceVersion === sourceVersionRef.current &&
         getRemotePlaybackStatus(startupCommand.command) === "PLAYING"
       ) {
+        logWatchPartyDiagnostic("[WP PLAY RECOVERY]", {
+          event: "CONFIRMED",
+          ...getMediaDiagnosticFields(video, startupCommand.command),
+          sequence: getRemoteSequence(startupCommand.command),
+          sourceVersion: sourceVersionRef.current,
+        });
         reconcilePlayingToRemoteTarget(startupCommand.command);
       }
-      remoteStartupCommandRef.current = null;
-      pendingRemoteCommandRef.current = null;
+      if (mediaRecoveryRef.current?.sourceVersion === sourceVersionRef.current) {
+        logWatchPartyDiagnostic("[WP SYNC RECOVERY]", {
+          event: "STALL_EXIT",
+          ...getMediaDiagnosticFields(video),
+          sequence: mediaRecoveryRef.current.sequence,
+          sourceVersion: sourceVersionRef.current,
+        });
+        mediaRecoveryRef.current = null;
+      }
       play();
       setBuffering(false);
       setError(null);
@@ -1039,8 +1303,24 @@ export function usePlayer({
     };
     const handleTimeUpdate = () => {
       logMediaEvent("timeupdate");
+      const pendingPlay = remoteStartupCommandRef.current;
+      const advancedWhilePending =
+        pendingPlay?.awaitingProgress &&
+        pendingPlay.sourceVersion === sourceVersionRef.current &&
+        !video.paused &&
+        !video.seeking &&
+        video.currentTime > pendingPlay.lastObservedTime + 0.01;
+      const recoveredAfterStall =
+        mediaRecoveryRef.current?.sourceVersion === sourceVersionRef.current &&
+        !video.paused &&
+        !video.seeking &&
+        video.currentTime > mediaRecoveryRef.current.lastTime + 0.01;
       if (!video.paused && !video.ended && !isPlaying) {
         confirmPlaybackStarted();
+      } else if (advancedWhilePending || recoveredAfterStall) {
+        confirmPlaybackStarted();
+      } else if (pendingPlay) {
+        pendingPlay.lastObservedTime = video.currentTime;
       }
       setCurrentTime(video.currentTime);
       onTimeUpdate?.(video.currentTime);
@@ -1070,12 +1350,29 @@ export function usePlayer({
         setBufferedTime(video.buffered.end(video.buffered.length - 1));
       }
     };
+    const enterMediaRecovery = (eventName: "waiting" | "stalled") => {
+      mediaRecoveryRef.current = {
+        sourceVersion: sourceVersionRef.current,
+        sequence: getRemoteSequence(latestRemoteCommandRef.current),
+        enteredAt: getNowMs(),
+        lastTime: video.currentTime,
+      };
+      logWatchPartyDiagnostic("[WP SYNC RECOVERY]", {
+        event: "STALL_ENTER",
+        mediaEvent: eventName,
+        ...getMediaDiagnosticFields(video),
+        sequence: getRemoteSequence(latestRemoteCommandRef.current),
+        sourceVersion: sourceVersionRef.current,
+      });
+    };
     const handleWaiting = () => {
       logMediaEvent("waiting", { force: true });
+      enterMediaRecovery("waiting");
       setBuffering(true);
     };
     const handleStalled = () => {
       logMediaEvent("stalled", { force: true });
+      enterMediaRecovery("stalled");
     };
     const handleSeeking = () => {
       logMediaEvent("seeking", { force: true });
