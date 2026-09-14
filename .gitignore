@@ -10,6 +10,9 @@ build/
 out/
 .turbo/
 
+docker/nginx/ssl/*
+!docker/nginx/ssl/.gitkeep
+
 # Testing
 coverage/
 .nyc_output/
