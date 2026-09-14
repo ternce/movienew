@@ -27,6 +27,8 @@ export interface VideoPlayerProps {
   initialTime?: number;
   /** Remote playback command from a synchronized room */
   remoteCommand?: PlaybackRemoteCommand | null;
+  /** True when this player is controlled by the Watch Party host */
+  isWatchPartyHost?: boolean;
   /** Local playback action callback for synchronized room hosts */
   onPlaybackAction?: (action: PlaybackLocalAction) => void;
   /** High-frequency playback position callback */
@@ -75,6 +77,7 @@ export function VideoPlayer({
   autoPlay = false,
   initialTime = 0,
   remoteCommand,
+  isWatchPartyHost = false,
   onPlaybackAction,
   onTimeUpdate,
   onProgress,
@@ -124,6 +127,7 @@ export function VideoPlayer({
     autoPlay,
     initialTime,
     remoteCommand,
+    isWatchPartyHost,
     onPlaybackAction,
     onTimeUpdate,
     onProgress,

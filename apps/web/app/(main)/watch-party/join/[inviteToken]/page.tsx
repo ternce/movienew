@@ -2112,6 +2112,7 @@ function WatchPartyJoinPageContent() {
                     // source when the authoritative room state says PLAYING.
                     autoPlay={playbackState?.playbackStatus === "PLAYING"}
                     remoteCommand={remoteCommand}
+                    isWatchPartyHost={isHost}
                     onPlaybackAction={handleLocalPlaybackAction}
                     onEnded={handleEpisodeEnded}
                     onTimeUpdate={(time) => {

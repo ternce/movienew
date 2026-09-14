@@ -156,6 +156,38 @@ function installVideoState(
   });
 }
 
+function mockBrowser(options: { userAgent: string; platform: string; maxTouchPoints?: number }) {
+  Object.defineProperty(window.navigator, "userAgent", {
+    configurable: true,
+    value: options.userAgent,
+  });
+  Object.defineProperty(window.navigator, "platform", {
+    configurable: true,
+    value: options.platform,
+  });
+  Object.defineProperty(window.navigator, "maxTouchPoints", {
+    configurable: true,
+    value: options.maxTouchPoints ?? 0,
+  });
+}
+
+function mockIOSSafari() {
+  mockBrowser({
+    platform: "iPhone",
+    maxTouchPoints: 5,
+    userAgent:
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+  });
+}
+
+function mockDesktopChrome() {
+  mockBrowser({
+    platform: "Win32",
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+  });
+}
+
 function command(
   sequence: number,
   playbackStatus: "PLAYING" | "PAUSED",
@@ -176,17 +208,20 @@ function command(
 function Harness({
   src = "test.m3u8",
   remoteCommand,
+  isWatchPartyHost = false,
   onPlaybackAction,
   onError,
 }: {
   src?: string;
   remoteCommand?: PlaybackRemoteCommand | null;
+  isWatchPartyHost?: boolean;
   onPlaybackAction?: (action: PlaybackLocalAction) => void;
   onError?: (message: string) => void;
 }) {
   const { videoRef, togglePlayPause, retryBlockedAutoplay, seek } = usePlayer({
     src,
     remoteCommand,
+    isWatchPartyHost,
     onPlaybackAction,
     onError,
   });
@@ -211,6 +246,7 @@ describe("usePlayer Watch Party remote sync", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv("NEXT_PUBLIC_WATCH_PARTY_DIAGNOSTICS", "true");
+    mockDesktopChrome();
     storeState.isPlaying = false;
     storeState.isSettingsOpen = false;
     vi.spyOn(console, "debug").mockImplementation(() => undefined);
@@ -966,6 +1002,212 @@ describe("usePlayer Watch Party remote sync", () => {
     expect(state.playbackRate).toBe(1);
   });
 
+  it("keeps desktop host on the existing correction path even on iOS Safari", async () => {
+    mockIOSSafari();
+    const { rerender } = render(<Harness remoteCommand={null} isWatchPartyHost />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+
+    rerender(
+      <Harness
+        remoteCommand={command(106, "PLAYING", 10.8)}
+        isWatchPartyHost
+      />,
+    );
+    await act(async () => {});
+
+    expect(state.playbackRate).toBeCloseTo(1.055);
+    expect(state.currentTime).toBe(10);
+  });
+
+  it.each([
+    ["small", 10.3],
+    ["medium", 10.9],
+    ["near-threshold", 11.2],
+  ])("tolerates %s passive drift on iOS Safari guest", async (_label, target) => {
+    mockIOSSafari();
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1,
+      currentTimeWrites: 0,
+      playbackRateWrites: 0,
+    };
+    installVideoState(video, state);
+    vi.clearAllMocks();
+
+    rerender(<Harness remoteCommand={command(107, "PLAYING", target)} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(10);
+    expect(state.currentTimeWrites).toBe(0);
+    expect(state.playbackRate).toBe(1);
+    expect(state.playbackRateWrites).toBe(0);
+    expect(video.play).not.toHaveBeenCalled();
+    expect(video.pause).not.toHaveBeenCalled();
+  });
+
+  it("requires two progressing large-drift samples before iOS Safari guest hard-aligns", async () => {
+    mockIOSSafari();
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1,
+      currentTimeWrites: 0,
+      playbackRateWrites: 0,
+    };
+    installVideoState(video, state);
+    vi.clearAllMocks();
+
+    rerender(<Harness remoteCommand={command(108, "PLAYING", 11.6)} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(10);
+    expect(state.currentTimeWrites).toBe(0);
+    expect(state.playbackRate).toBe(1);
+
+    act(() => {
+      state.currentTime = 10.2;
+      video.dispatchEvent(new Event("timeupdate"));
+    });
+    rerender(<Harness remoteCommand={command(109, "PLAYING", 11.8)} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(11.8);
+    expect(state.currentTimeWrites).toBe(1);
+    expect(state.playbackRate).toBe(1);
+    expect(console.debug).toHaveBeenCalledWith(
+      "[WP IOS SYNC]",
+      expect.objectContaining({
+        event: "HARD_ALIGN",
+      }),
+    );
+  });
+
+  it("does not count repeated iOS large-drift samples without media progression", async () => {
+    mockIOSSafari();
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1,
+      currentTimeWrites: 0,
+    };
+    installVideoState(video, state);
+
+    rerender(<Harness remoteCommand={command(110, "PLAYING", 11.6)} />);
+    await act(async () => {});
+    rerender(<Harness remoteCommand={command(111, "PLAYING", 11.7)} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(10);
+    expect(state.currentTimeWrites).toBe(0);
+  });
+
+  it("resets iOS large-drift persistence when drift falls below threshold", async () => {
+    mockIOSSafari();
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1,
+      currentTimeWrites: 0,
+    };
+    installVideoState(video, state);
+
+    rerender(<Harness remoteCommand={command(112, "PLAYING", 11.6)} />);
+    await act(async () => {});
+    act(() => {
+      state.currentTime = 10.2;
+      video.dispatchEvent(new Event("timeupdate"));
+    });
+    rerender(<Harness remoteCommand={command(113, "PLAYING", 11.1)} />);
+    await act(async () => {});
+    act(() => {
+      state.currentTime = 10.4;
+      video.dispatchEvent(new Event("timeupdate"));
+    });
+    rerender(<Harness remoteCommand={command(114, "PLAYING", 12)} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(10.4);
+    expect(state.currentTimeWrites).toBe(0);
+  });
+
+  it("keeps iOS Safari guest at explicit authoritative host speed without correction multiplier", async () => {
+    mockIOSSafari();
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+
+    rerender(
+      <Harness
+        remoteCommand={command(115, "PLAYING", 10.9, "state", {
+          playbackRate: 1.25,
+        })}
+      />,
+    );
+    await act(async () => {});
+
+    expect(state.playbackRate).toBe(1.25);
+    expect(state.currentTime).toBe(10);
+  });
+
+  it("does not let historical correction rate leak as iOS Safari guest base rate", async () => {
+    mockIOSSafari();
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1.03,
+    };
+    installVideoState(video, state);
+
+    rerender(<Harness remoteCommand={command(116, "PLAYING", 10.9)} />);
+    await act(async () => {});
+
+    expect(state.playbackRate).toBe(1);
+    expect(state.currentTime).toBe(10);
+  });
+
   it("cancels soft correction when a pause arrives", async () => {
     vi.useFakeTimers();
     const { rerender } = render(<Harness remoteCommand={null} />);
@@ -1363,6 +1605,132 @@ describe("usePlayer Watch Party remote sync", () => {
 
     expect(state.currentTime).toBe(11);
     expect(state.paused).toBe(true);
+  });
+
+  it("keeps explicit host seek exact for iOS Safari guest without persistence", async () => {
+    mockIOSSafari();
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1,
+      currentTimeWrites: 0,
+    };
+    installVideoState(video, state);
+
+    rerender(<Harness remoteCommand={command(117, "PLAYING", 42, "seek")} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(42);
+    expect(state.currentTimeWrites).toBe(1);
+  });
+
+  it("keeps explicit host pause exact for iOS Safari guest", async () => {
+    mockIOSSafari();
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: false,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1,
+    };
+    installVideoState(video, state);
+
+    rerender(<Harness remoteCommand={command(118, "PAUSED", 10.5, "pause")} />);
+    await act(async () => {});
+
+    expect(state.currentTime).toBe(10.5);
+    expect(state.paused).toBe(true);
+  });
+
+  it("keeps iOS Safari autoplay-blocked recovery from creating play, seek, or rate storms", async () => {
+    mockIOSSafari();
+    const blocked = new DOMException("gesture required", "NotAllowedError");
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1,
+      currentTimeWrites: 0,
+      playbackRateWrites: 0,
+    };
+    installVideoState(video, state, () => Promise.reject(blocked));
+
+    rerender(<Harness remoteCommand={command(119, "PLAYING", 10, "play")} />);
+    await act(async () => {});
+    expect(video.play).toHaveBeenCalledTimes(1);
+    expect(storeActions.setAutoplayBlocked).toHaveBeenCalledWith(AUTOPLAY_BLOCKED_MESSAGE);
+
+    rerender(<Harness remoteCommand={command(120, "PLAYING", 12)} />);
+    await act(async () => {});
+    rerender(<Harness remoteCommand={command(121, "PLAYING", 13)} />);
+    await act(async () => {});
+
+    expect(video.play).toHaveBeenCalledTimes(1);
+    expect(state.currentTimeWrites).toBe(0);
+    expect(state.playbackRateWrites).toBe(0);
+    expect(console.debug).toHaveBeenCalledWith(
+      "[WP IOS SYNC]",
+      expect.objectContaining({
+        event: "AUTOPLAY_BLOCKED",
+      }),
+    );
+  });
+
+  it("lets user gesture recovery resume iOS Safari conservative sync", async () => {
+    mockIOSSafari();
+    const blocked = new DOMException("gesture required", "NotAllowedError");
+    let attempt = 0;
+    const { rerender } = render(<Harness remoteCommand={null} />);
+    const video = screen.getByTestId("video") as HTMLVideoElement;
+    const state = {
+      currentTime: 10,
+      duration: 120,
+      paused: true,
+      ended: false,
+      readyState: 4,
+      playbackRate: 1,
+      currentTimeWrites: 0,
+      playbackRateWrites: 0,
+    };
+    installVideoState(video, state, () => {
+      attempt += 1;
+      if (attempt === 1) return Promise.reject(blocked);
+      state.paused = false;
+      state.ended = false;
+      return Promise.resolve();
+    });
+
+    rerender(<Harness remoteCommand={command(122, "PLAYING", 10, "play")} />);
+    await act(async () => {});
+
+    await act(async () => {
+      screen.getByRole("button", { name: "retry" }).click();
+    });
+    act(() => {
+      video.dispatchEvent(new Event("playing"));
+    });
+
+    expect(video.play).toHaveBeenCalledTimes(2);
+    expect(storeActions.play).toHaveBeenCalled();
+    vi.clearAllMocks();
+
+    rerender(<Harness remoteCommand={command(123, "PLAYING", 10.9)} />);
+    await act(async () => {});
+
+    expect(state.currentTimeWrites).toBe(0);
+    expect(state.playbackRate).toBe(1);
   });
 
   it("avoids playbackRate reset/restart thrash across multiple passive states", async () => {

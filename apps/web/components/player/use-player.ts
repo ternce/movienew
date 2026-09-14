@@ -14,6 +14,7 @@ interface UsePlayerOptions {
   autoPlay?: boolean;
   initialTime?: number;
   remoteCommand?: PlaybackRemoteCommand | null;
+  isWatchPartyHost?: boolean;
   onPlaybackAction?: (action: PlaybackLocalAction) => void;
   onTimeUpdate?: (time: number) => void;
   onProgress?: (
@@ -62,6 +63,8 @@ const ENDED_REPLAY_EPSILON_SECONDS = 0.5;
 const PLAYING_DRIFT_SOFT_SECONDS = 0.5;
 const PLAYING_DRIFT_STRONG_SOFT_SECONDS = 1.25;
 const STRONG_SOFT_CORRECTION_RATE_DELTA = 0.055;
+const IOS_SAFARI_PASSIVE_DRIFT_HARD_SECONDS = 1.25;
+const IOS_SAFARI_LARGE_DRIFT_REQUIRED_SAMPLES = 2;
 
 function getRemotePlaybackStatus(command: PlaybackRemoteCommand) {
   if (command.type === "play") return "PLAYING";
@@ -167,6 +170,14 @@ type MediaRecoveryState = {
   sequence: string | null;
   enteredAt: number;
   lastTime: number;
+};
+
+type IOSLargeDriftState = {
+  sourceVersion: number;
+  direction: SyncCorrectionDirection;
+  count: number;
+  lastSequence: string | null;
+  lastObservedTime: number;
 };
 
 function getNowMs() {
@@ -294,6 +305,7 @@ export function usePlayer({
   autoPlay = false,
   initialTime = 0,
   remoteCommand,
+  isWatchPartyHost = false,
   onPlaybackAction,
   onTimeUpdate,
   onProgress,
@@ -319,6 +331,7 @@ export function usePlayer({
   const activeCorrectionRef = useRef<ActiveSyncCorrection | null>(null);
   const correctionGenerationRef = useRef(0);
   const mediaRecoveryRef = useRef<MediaRecoveryState | null>(null);
+  const iosLargeDriftRef = useRef<IOSLargeDriftState | null>(null);
   const softCorrectionBaseRateRef = useRef<number | null>(null);
   const softCorrectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -475,6 +488,30 @@ export function usePlayer({
     [getMediaDiagnosticFields],
   );
 
+  const logIOSSync = useCallback(
+    (
+      event: "IGNORE" | "LARGE_DRIFT_SAMPLE" | "HARD_ALIGN" | "AUTOPLAY_BLOCKED",
+      extra: Record<string, unknown> = {},
+      command = latestRemoteCommandRef.current,
+    ) => {
+      const video = videoRef.current;
+      if (!video || !command || !isWatchPartyDiagnosticsEnabled()) return;
+
+      logWatchPartyDiagnostic("[WP IOS SYNC]", {
+        event,
+        ...extra,
+        ...getMediaDiagnosticFields(video, command),
+      });
+    },
+    [getMediaDiagnosticFields],
+  );
+
+  const shouldUseIOSConservativeSync = useCallback(() => {
+    if (isWatchPartyHost) return false;
+    const browser = getBrowserDiagnostics();
+    return browser.isIOS && browser.isSafari;
+  }, [isWatchPartyHost]);
+
   const clearSoftCorrection = useCallback(
     (playbackRate?: number) => {
       if (softCorrectionTimerRef.current) {
@@ -483,7 +520,10 @@ export function usePlayer({
       }
       correctionGenerationRef.current += 1;
 
-      const targetRate = playbackRate ?? softCorrectionBaseRateRef.current;
+      const targetRate =
+        playbackRate ??
+        softCorrectionBaseRateRef.current ??
+        authoritativeBaseRateRef.current;
       const video = videoRef.current;
       if (
         video &&
@@ -509,12 +549,16 @@ export function usePlayer({
       playbackRate: number,
       reason: string,
       command: PlaybackRemoteCommand,
+      options?: { forcePhysicalRate?: boolean },
     ) => {
       const video = videoRef.current;
       if (!video || playbackRate <= 0) return;
 
       authoritativeBaseRateRef.current = playbackRate;
       softCorrectionBaseRateRef.current = playbackRate;
+      if (options?.forcePhysicalRate && activeCorrectionRef.current) {
+        clearSoftCorrection(playbackRate);
+      }
       if (activeCorrectionRef.current) {
         activeCorrectionRef.current.baseRate = playbackRate;
         return;
@@ -528,7 +572,7 @@ export function usePlayer({
         to: Number(playbackRate.toFixed(3)),
       }, command);
     },
-    [logMediaMutation],
+    [clearSoftCorrection, logMediaMutation],
   );
 
   const applySoftCorrection = useCallback(
@@ -662,7 +706,14 @@ export function usePlayer({
       const targetTime = Number(getCommandTargetTime(command));
       const playbackRate = getCommandPlaybackRate(command);
       const rateBefore = video.playbackRate || playbackRate;
-      setAuthoritativeBaseRate(playbackRate, "remote-playing-base-rate", command);
+      const useIOSConservativeSync =
+        shouldUseIOSConservativeSync() && isPassivePlayingSnapshot(command);
+      setAuthoritativeBaseRate(
+        playbackRate,
+        "remote-playing-base-rate",
+        command,
+        { forcePhysicalRate: useIOSConservativeSync },
+      );
 
       if (!Number.isFinite(targetTime)) return;
 
@@ -689,9 +740,111 @@ export function usePlayer({
         isPassivePlayingSnapshot(command);
 
       if (isPendingPlayRecovery || isMediaRecoveryActive) {
+        if (useIOSConservativeSync) {
+          iosLargeDriftRef.current = null;
+          logIOSSync("IGNORE", {
+            reason: isPendingPlayRecovery ? "play-recovery" : "media-recovery",
+            driftMs: Math.round(drift * 1000),
+          }, command);
+        }
         logSyncCorrection({
           reason: isPendingPlayRecovery ? "play-recovery" : "media-recovery",
           type: "IGNORE",
+          local: localTime,
+          target: nextTime,
+          drift,
+          rateBefore,
+          rateAfter: video.playbackRate || playbackRate,
+          command,
+          playbackEngine: playbackEngineRef.current,
+        });
+        return;
+      }
+
+      if (useIOSConservativeSync && !forceSnap && !video.ended) {
+        if (
+          absDrift <= IOS_SAFARI_PASSIVE_DRIFT_HARD_SECONDS ||
+          video.seeking ||
+          video.paused
+        ) {
+          iosLargeDriftRef.current = null;
+          logIOSSync("IGNORE", {
+            driftMs: Math.round(drift * 1000),
+            thresholdMs: IOS_SAFARI_PASSIVE_DRIFT_HARD_SECONDS * 1000,
+          }, command);
+          logSyncCorrection({
+            reason: "ios-conservative",
+            type: "IGNORE",
+            local: localTime,
+            target: nextTime,
+            drift,
+            rateBefore,
+            rateAfter: video.playbackRate || playbackRate,
+            command,
+            playbackEngine: playbackEngineRef.current,
+          });
+          return;
+        }
+
+        const direction: SyncCorrectionDirection = drift > 0 ? "behind" : "ahead";
+        const previousSample = iosLargeDriftRef.current;
+        const mediaProgressed =
+          !previousSample ||
+          previousSample.sourceVersion !== sourceVersionRef.current ||
+          video.currentTime > previousSample.lastObservedTime + 0.01;
+        const sameLargeDrift =
+          previousSample &&
+          previousSample.sourceVersion === sourceVersionRef.current &&
+          previousSample.direction === direction;
+        const nextCount =
+          mediaProgressed && sameLargeDrift ? previousSample.count + 1 : 1;
+        iosLargeDriftRef.current = {
+          sourceVersion: sourceVersionRef.current,
+          direction,
+          count: nextCount,
+          lastSequence: getRemoteSequence(command),
+          lastObservedTime: video.currentTime,
+        };
+
+        logIOSSync("LARGE_DRIFT_SAMPLE", {
+          driftMs: Math.round(drift * 1000),
+          count: nextCount,
+          required: IOS_SAFARI_LARGE_DRIFT_REQUIRED_SAMPLES,
+          mediaProgressed,
+        }, command);
+
+        if (nextCount < IOS_SAFARI_LARGE_DRIFT_REQUIRED_SAMPLES) {
+          logSyncCorrection({
+            reason: "ios-large-drift-pending",
+            type: "IGNORE",
+            local: localTime,
+            target: nextTime,
+            drift,
+            rateBefore,
+            rateAfter: video.playbackRate || playbackRate,
+            command,
+            playbackEngine: playbackEngineRef.current,
+          });
+          return;
+        }
+
+        iosLargeDriftRef.current = null;
+        clearSoftCorrection(playbackRate);
+        logIOSSync("HARD_ALIGN", {
+          from: Number(localTime.toFixed(3)),
+          to: Number(nextTime.toFixed(3)),
+          driftMs: Math.round(drift * 1000),
+        }, command);
+        logMediaMutation("currentTime", "ios-passive-persistent-hard-correction", {
+          from: Number(localTime.toFixed(3)),
+          to: Number(nextTime.toFixed(3)),
+          driftMs: Math.round(drift * 1000),
+        }, command);
+        video.currentTime = nextTime;
+        setCurrentTime(video.currentTime);
+        logSyncCorrection({
+          reason: "ios-conservative",
+          type: "HARD",
           local: localTime,
           target: nextTime,
           drift,
@@ -792,7 +945,16 @@ export function usePlayer({
         }
       }
     },
-    [applySoftCorrection, clearSoftCorrection, logMediaMutation, setAuthoritativeBaseRate, setCurrentTime, setEnded],
+    [
+      applySoftCorrection,
+      clearSoftCorrection,
+      logIOSSync,
+      logMediaMutation,
+      setAuthoritativeBaseRate,
+      setCurrentTime,
+      setEnded,
+      shouldUseIOSConservativeSync,
+    ],
   );
 
   const applyRemotePlaybackCommand = useCallback(
@@ -810,6 +972,7 @@ export function usePlayer({
       if (!hasMetadata(video)) {
         pendingRemoteCommandRef.current = command;
         if (status === "PAUSED") {
+          iosLargeDriftRef.current = null;
           mediaRecoveryRef.current = null;
           remoteStartupCommandRef.current = null;
           clearSoftCorrection(playbackRate);
@@ -833,6 +996,7 @@ export function usePlayer({
 
         const drift = Math.abs(video.currentTime - nextTime);
         if (status === "PAUSED" || command.type === "seek") {
+          iosLargeDriftRef.current = null;
           mediaRecoveryRef.current = null;
           remoteStartupCommandRef.current = null;
           clearSoftCorrection(playbackRate);
@@ -912,6 +1076,9 @@ export function usePlayer({
             if (version !== remoteCommandVersionRef.current) return;
             if (isAutoplayBlockedError(error)) {
               pendingRemoteCommandRef.current = command;
+              if (shouldUseIOSConservativeSync()) {
+                logIOSSync("AUTOPLAY_BLOCKED", {}, command);
+              }
               logWatchPartyDiagnostic("[WP PLAY RECOVERY]", {
                 event: "BLOCKED",
                 ...getMediaDiagnosticFields(video, command),
@@ -937,6 +1104,7 @@ export function usePlayer({
           }
         }
       } else if (status === "PAUSED") {
+        iosLargeDriftRef.current = null;
         mediaRecoveryRef.current = null;
         pendingRemoteCommandRef.current = null;
         if (remoteStartupCommandRef.current) {
@@ -969,6 +1137,7 @@ export function usePlayer({
     [
       clearSoftCorrection,
       getMediaDiagnosticFields,
+      logIOSSync,
       logMediaMutation,
       reconcilePlayingToRemoteTarget,
       setAuthoritativeBaseRate,
@@ -977,6 +1146,7 @@ export function usePlayer({
       setEnded,
       setError,
       setPlayPending,
+      shouldUseIOSConservativeSync,
     ],
   );
 
@@ -999,6 +1169,7 @@ export function usePlayer({
     pendingRemoteCommandRef.current = null;
     remoteStartupCommandRef.current = null;
     mediaRecoveryRef.current = null;
+    iosLargeDriftRef.current = null;
     setError(null);
     setAutoplayBlocked(null);
     setPlayPending(false);
@@ -1351,6 +1522,7 @@ export function usePlayer({
       }
     };
     const enterMediaRecovery = (eventName: "waiting" | "stalled") => {
+      iosLargeDriftRef.current = null;
       mediaRecoveryRef.current = {
         sourceVersion: sourceVersionRef.current,
         sequence: getRemoteSequence(latestRemoteCommandRef.current),
