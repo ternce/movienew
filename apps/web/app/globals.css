@@ -4076,7 +4076,7 @@
 
   /* Блок действий справа */
   .shorts-actions {
-    right: 14px !important;
+    right: 26px !important;
     bottom: calc(156px + env(safe-area-inset-bottom, 0px)) !important;
     gap: 18px !important;
     z-index: 20;
@@ -4148,10 +4148,10 @@
   /* Информация снизу */
   .shorts-info {
     left: 16px !important;
-    right: 86px !important;
-    bottom: calc(126px + env(safe-area-inset-bottom, 0px)) !important;
+    right: 96px !important;
+    bottom: calc(74px + env(safe-area-inset-bottom, 0px)) !important;
     z-index: 20;
-    max-width: calc(100vw - 116px);
+    max-width: calc(100vw - 126px);
   }
 
   .shorts-info h3 {
