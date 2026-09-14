@@ -100,7 +100,7 @@ export default function VideoDetailPage() {
           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
         </div>
 
-        <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8">
+        <div className="sesh-content-detail-hero-copy absolute bottom-0 left-0 right-0 p-6 sm:p-8">
           <div className="mb-3 flex items-center gap-3">
             <AgeBadge
               age={(video.ageCategory || "0+") as AgeCategory}

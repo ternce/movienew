@@ -185,7 +185,7 @@ export default function SeriesDetailPage() {
 
         <Container
           size="xl"
-          className="relative z-10 flex h-full items-end pb-8"
+          className="sesh-content-detail-hero-copy relative z-10 flex h-full items-end pb-8"
         >
           <div className="max-w-2xl">
             {/* Badges */}

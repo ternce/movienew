@@ -7345,6 +7345,19 @@
     height: min(64dvh, 480px) !important;
   }
 
+  .sesh-content-detail-hero-copy {
+    padding-top: calc(var(--sesh-mobile-header-space) + 14px) !important;
+  }
+
+  .sesh-content-detail-card .sesh-content-detail-hero-copy {
+    top: 0;
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    justify-content: flex-end;
+    overflow: hidden;
+  }
+
   .sesh-content-detail-hero::after,
   .sesh-content-detail-card::after {
     content: '';
