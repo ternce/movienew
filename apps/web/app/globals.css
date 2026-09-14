@@ -4078,13 +4078,33 @@
   .shorts-actions {
     right: 14px !important;
     bottom: calc(156px + env(safe-area-inset-bottom, 0px)) !important;
-    gap: 14px !important;
+    gap: 18px !important;
     z-index: 20;
+    align-items: center;
+    flex-shrink: 0;
+    max-height: none;
   }
 
-  .shorts-actions button {
-    width: 52px;
-    height: 52px;
+  .shorts-actions > button {
+    width: auto !important;
+    height: auto !important;
+    min-width: 48px;
+    min-height: auto;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  .shorts-actions > button > div {
+    width: 48px !important;
+    height: 48px !important;
+    min-width: 48px;
+    min-height: 48px;
+    aspect-ratio: 1 / 1;
+    flex: 0 0 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     border-radius: 999px;
 
     backdrop-filter: blur(10px);
@@ -4098,12 +4118,40 @@
       0 0 18px rgba(215,10,42,0.08);
   }
 
+  .shorts-actions > button > span {
+    min-width: 48px;
+    max-width: 56px;
+    text-align: center;
+    line-height: 1.1;
+    white-space: nowrap;
+  }
+
+  .shorts-actions > a,
+  .shorts-actions > div {
+    width: 48px;
+    height: 48px;
+    aspect-ratio: 1 / 1;
+    flex: 0 0 48px;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+  }
+
+  .shorts-actions > a [class*='h-11'],
+  .shorts-actions > div [class*='h-11'] {
+    width: 44px !important;
+    height: 44px !important;
+    aspect-ratio: 1 / 1;
+    flex: 0 0 44px;
+  }
+
   /* Информация снизу */
   .shorts-info {
     left: 16px !important;
-    right: 80px !important;
+    right: 86px !important;
     bottom: calc(126px + env(safe-area-inset-bottom, 0px)) !important;
     z-index: 20;
+    max-width: calc(100vw - 116px);
   }
 
   .shorts-info h3 {
@@ -6463,47 +6511,47 @@
   }
 
   .sesh-mobile-header::before {
-    inset: var(--sesh-mobile-header-top) 0 0;
+    inset: 0;
     border-width: 0 0 1px;
     border-radius: 0;
-    border-color: rgba(255, 255, 255, 0.075);
+    border-color: rgba(255, 255, 255, 0.035);
     background:
-      radial-gradient(ellipse at 18% 100%, rgba(215, 10, 42, 0.13), transparent 52%),
-      radial-gradient(ellipse at 82% 100%, rgba(15, 102, 235, 0.1), transparent 48%),
-      linear-gradient(180deg, rgba(8, 5, 17, 0.7), rgba(8, 5, 17, 0.44)),
-      rgba(8, 5, 17, 0.28);
-    opacity: 1;
+      radial-gradient(ellipse at 18% 100%, rgba(215, 10, 42, 0.11), transparent 56%),
+      radial-gradient(ellipse at 82% 100%, rgba(15, 102, 235, 0.08), transparent 52%),
+      linear-gradient(180deg, rgba(8, 5, 17, 0.58), rgba(8, 5, 17, 0.32));
+    opacity: 0.96;
     box-shadow:
-      0 12px 30px rgba(0, 0, 0, 0.16),
-      inset 0 -1px 0 rgba(255, 255, 255, 0.045),
-      0 0 24px rgba(215, 10, 42, 0.08),
-      0 0 24px rgba(15, 102, 235, 0.06);
-    backdrop-filter: blur(18px) saturate(1.16);
-    -webkit-backdrop-filter: blur(18px) saturate(1.16);
+      0 10px 26px rgba(0, 0, 0, 0.12),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.025),
+      0 0 18px rgba(215, 10, 42, 0.055),
+      0 0 18px rgba(15, 102, 235, 0.04);
+    backdrop-filter: blur(22px) saturate(1.18);
+    -webkit-backdrop-filter: blur(22px) saturate(1.18);
   }
 
   .sesh-mobile-header-expanded::before {
     border-color: transparent;
-    background: linear-gradient(180deg, rgba(5, 2, 11, 0.18), transparent);
+    background:
+      radial-gradient(ellipse at 22% 100%, rgba(215, 10, 42, 0.08), transparent 58%),
+      linear-gradient(180deg, rgba(5, 2, 11, 0.36), rgba(5, 2, 11, 0.08));
     box-shadow: none;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(14px) saturate(1.08);
+    -webkit-backdrop-filter: blur(14px) saturate(1.08);
   }
 
   .sesh-mobile-header-compact::before {
-    border-color: rgba(255, 255, 255, 0.075);
+    border-color: rgba(255, 255, 255, 0.035);
     background:
-      radial-gradient(ellipse at 18% 100%, rgba(215, 10, 42, 0.13), transparent 52%),
-      radial-gradient(ellipse at 82% 100%, rgba(15, 102, 235, 0.1), transparent 48%),
-      linear-gradient(180deg, rgba(8, 5, 17, 0.7), rgba(8, 5, 17, 0.44)),
-      rgba(8, 5, 17, 0.28);
+      radial-gradient(ellipse at 18% 100%, rgba(215, 10, 42, 0.11), transparent 56%),
+      radial-gradient(ellipse at 82% 100%, rgba(15, 102, 235, 0.08), transparent 52%),
+      linear-gradient(180deg, rgba(8, 5, 17, 0.6), rgba(8, 5, 17, 0.34));
     box-shadow:
-      0 12px 30px rgba(0, 0, 0, 0.16),
-      inset 0 -1px 0 rgba(255, 255, 255, 0.045),
-      0 0 24px rgba(215, 10, 42, 0.08),
-      0 0 24px rgba(15, 102, 235, 0.06);
-    backdrop-filter: blur(18px) saturate(1.16);
-    -webkit-backdrop-filter: blur(18px) saturate(1.16);
+      0 10px 26px rgba(0, 0, 0, 0.12),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.025),
+      0 0 18px rgba(215, 10, 42, 0.055),
+      0 0 18px rgba(15, 102, 235, 0.04);
+    backdrop-filter: blur(22px) saturate(1.18);
+    -webkit-backdrop-filter: blur(22px) saturate(1.18);
   }
 
   .sesh-mobile-header::after {
@@ -6512,14 +6560,14 @@
     left: 0;
     right: 0;
     top: 100%;
-    height: 18px;
+    height: 26px;
     pointer-events: none;
-    background: linear-gradient(180deg, rgba(8, 5, 17, 0.32), transparent);
-    opacity: 0.86;
+    background: linear-gradient(180deg, rgba(8, 5, 17, 0.22), rgba(8, 5, 17, 0));
+    opacity: 0.72;
   }
 
   .sesh-mobile-header-expanded::after {
-    opacity: 0.38;
+    opacity: 0.34;
   }
 
   .sesh-mobile-header-inner {
