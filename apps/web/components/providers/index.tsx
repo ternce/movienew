@@ -4,6 +4,7 @@ import * as React from 'react';
 import dynamic from 'next/dynamic';
 
 import { NetworkStatus } from '@/components/ui/network-status';
+import { PwaInstallProvider } from '@/hooks/use-pwa-install';
 import { getQueryClient } from '@/lib/query-client';
 import { useAuthStore } from '@/stores/auth.store';
 
@@ -64,9 +65,11 @@ export function Providers({ children }: ProvidersProps) {
   return (
     <QueryProvider>
       <ThemeProvider>
-        {children}
-        <NetworkStatus />
-        <Toaster />
+        <PwaInstallProvider>
+          {children}
+          <NetworkStatus />
+          <Toaster />
+        </PwaInstallProvider>
       </ThemeProvider>
     </QueryProvider>
   );
