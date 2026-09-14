@@ -7,6 +7,7 @@ import * as React from 'react';
 import { MobileHeader } from '@/components/layout/mobile-header';
 import { ProfileDropdown } from '@/components/layout/profile-dropdown';
 import { NotificationBell } from '@/components/notifications/notification-bell';
+import { PwaInstallAction } from '@/components/pwa/pwa-install-action';
 import { SearchInputCompact } from '@/components/search/search-input';
 import { CartBadge } from '@/components/store';
 import { Button } from '@/components/ui/button';
@@ -69,6 +70,7 @@ export function AppHeader({ className }: AppHeaderProps) {
               className="hidden h-8 w-8 text-white/65 hover:text-white [&_svg]:h-4 [&_svg]:w-4 xl:flex"
             />
             <CartDrawer open={cartOpen} onOpenChange={setCartOpen} />
+            <PwaInstallAction nativeOnly className="hidden lg:inline-flex" />
             <NotificationBell />
             <ProfileDropdown />
           </div>

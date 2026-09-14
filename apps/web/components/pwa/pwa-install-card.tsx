@@ -1,9 +1,8 @@
 "use client";
 
-import { CheckCircle, Desktop, Info, SpinnerGap } from "@phosphor-icons/react";
-import { toast } from "sonner";
+import { CheckCircle, Desktop, Info } from "@phosphor-icons/react";
 
-import { Button } from "@/components/ui/button";
+import { PwaInstallAction } from "@/components/pwa/pwa-install-action";
 import {
   Card,
   CardContent,
@@ -14,19 +13,14 @@ import {
 import { usePwaInstall } from "@/hooks/use-pwa-install";
 
 export function PwaInstallCard() {
-  const { canInstall, install, isInstalled, isPrompting, isStandalone } =
+  const { installMethod, isInstalled, isStandalone, platform } =
     usePwaInstall();
   const isInstalledOrStandalone = isInstalled || isStandalone;
-
-  const handleInstall = async () => {
-    const result = await install();
-
-    if (result.outcome === "accepted") {
-      toast.success("Установка SESH началась");
-    } else if (result.outcome === "error") {
-      toast.error("Не удалось открыть установку приложения");
-    }
-  };
+  const canShowInstallAction = installMethod !== "unavailable";
+  const installCopy =
+    platform === "ios"
+      ? "Добавьте SESH на экран «Домой», чтобы открывать его как приложение."
+      : "Откройте SESH в отдельном окне без лишних элементов браузера.";
 
   return (
     <Card>
@@ -36,7 +30,7 @@ export function PwaInstallCard() {
           Приложение SESH
         </CardTitle>
         <CardDescription>
-          Установите SESH на компьютер для быстрого запуска.
+          Установите SESH на устройство для быстрого запуска.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -55,25 +49,10 @@ export function PwaInstallCard() {
               </p>
             </div>
           </div>
-        ) : canInstall ? (
+        ) : canShowInstallAction ? (
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-mp-text-secondary">
-              Откройте SESH в отдельном окне без лишних элементов браузера.
-            </p>
-            <Button
-              type="button"
-              variant="gradient"
-              onClick={handleInstall}
-              disabled={isPrompting}
-              className="shrink-0"
-            >
-              {isPrompting ? (
-                <SpinnerGap className="h-4 w-4 animate-spin" />
-              ) : (
-                <Desktop className="h-4 w-4" />
-              )}
-              Установить приложение
-            </Button>
+            <p className="text-sm text-mp-text-secondary">{installCopy}</p>
+            <PwaInstallAction className="shrink-0" />
           </div>
         ) : (
           <div className="flex items-start gap-3 rounded-lg border border-mp-border bg-mp-surface/50 p-4">

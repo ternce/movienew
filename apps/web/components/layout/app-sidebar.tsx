@@ -31,6 +31,7 @@ import * as React from "react";
 
 import { SeshLogo } from "@/components/common/sesh-logo";
 import { CollapsedNavTooltip } from "@/components/layout/collapsed-nav-tooltip";
+import { PwaInstallAction } from "@/components/pwa/pwa-install-action";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsMobile } from "@/hooks/use-media-query";
 import { canUsePartnerDashboard, canUseStudio } from "@/lib/role-permissions";
@@ -359,6 +360,13 @@ export function AppSidebar({ className }: AppSidebarProps) {
               </span>
             </Link>
           </CollapsedNavTooltip>
+
+          <div className="md:hidden">
+            <PwaInstallAction
+              mobileMenuItem
+              onNativePromptComplete={handleNavClick}
+            />
+          </div>
 
           <CollapsedNavTooltip label="Выйти" collapsed={isSidebarCollapsed}>
             <button

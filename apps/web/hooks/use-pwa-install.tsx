@@ -3,6 +3,8 @@
 import * as React from "react";
 
 type InstallOutcome = "accepted" | "dismissed" | "unavailable" | "error";
+type PwaInstallMethod = "native-prompt" | "ios-instructions" | "unavailable";
+type PwaPlatform = "desktop" | "android" | "ios" | "unknown";
 
 type BeforeInstallPromptChoice = {
   outcome: "accepted" | "dismissed";
@@ -25,7 +27,9 @@ type PwaInstallContextValue = {
   isStandalone: boolean;
   isInstalled: boolean;
   isPrompting: boolean;
+  installMethod: PwaInstallMethod;
   lastResult: PwaInstallResult | null;
+  platform: PwaPlatform;
   install: () => Promise<PwaInstallResult>;
 };
 
@@ -36,7 +40,9 @@ const PwaInstallContext = React.createContext<PwaInstallContextValue>({
   isStandalone: false,
   isInstalled: false,
   isPrompting: false,
+  installMethod: "unavailable",
   lastResult: null,
+  platform: "unknown",
   install: async () => unavailableInstallResult,
 });
 
@@ -54,18 +60,44 @@ function getStandaloneState() {
   return Boolean(displayModeStandalone || navigatorStandalone);
 }
 
+function getPlatform(): PwaPlatform {
+  if (typeof window === "undefined") return "unknown";
+
+  const userAgent = window.navigator.userAgent;
+  const isTouchMac =
+    window.navigator.platform === "MacIntel" &&
+    window.navigator.maxTouchPoints > 1;
+
+  if (/iPad|iPhone|iPod/.test(userAgent) || isTouchMac) {
+    return "ios";
+  }
+
+  if (/Android/.test(userAgent)) {
+    return "android";
+  }
+
+  if (userAgent) {
+    return "desktop";
+  }
+
+  return "unknown";
+}
+
 export function PwaInstallProvider({ children }: { children: React.ReactNode }) {
   const [deferredPrompt, setDeferredPrompt] =
     React.useState<BeforeInstallPromptEvent | null>(null);
   const [isStandalone, setIsStandalone] = React.useState(false);
   const [isInstalled, setIsInstalled] = React.useState(false);
   const [isPrompting, setIsPrompting] = React.useState(false);
+  const [platform, setPlatform] = React.useState<PwaPlatform>("unknown");
   const [lastResult, setLastResult] = React.useState<PwaInstallResult | null>(
     null,
   );
 
   React.useEffect(() => {
     if (typeof window === "undefined") return;
+
+    setPlatform(getPlatform());
 
     const standaloneQuery = window.matchMedia?.("(display-mode: standalone)");
     const syncStandalone = () => {
@@ -145,14 +177,35 @@ export function PwaInstallProvider({ children }: { children: React.ReactNode }) 
     }
   }, [deferredPrompt, isInstalled, isStandalone]);
 
+  const canInstall = Boolean(deferredPrompt) && !isStandalone && !isInstalled;
+  const isInstalledOrStandalone = isInstalled || isStandalone;
+  const installMethod: PwaInstallMethod = isInstalledOrStandalone
+    ? "unavailable"
+    : canInstall
+      ? "native-prompt"
+      : platform === "ios"
+        ? "ios-instructions"
+        : "unavailable";
+
   const value = React.useMemo<PwaInstallContextValue>(() => ({
-    canInstall: Boolean(deferredPrompt) && !isStandalone && !isInstalled,
+    canInstall,
     isStandalone,
     isInstalled,
     isPrompting,
+    installMethod,
     lastResult,
+    platform,
     install,
-  }), [deferredPrompt, install, isInstalled, isPrompting, isStandalone, lastResult]);
+  }), [
+    canInstall,
+    install,
+    installMethod,
+    isInstalled,
+    isPrompting,
+    isStandalone,
+    lastResult,
+    platform,
+  ]);
 
   return (
     <PwaInstallContext.Provider value={value}>
