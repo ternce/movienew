@@ -7,6 +7,16 @@ import {
 } from '../api/normalizers';
 
 describe('content normalizers', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
   it('normalizes incomplete public content list items', () => {
     const item = normalizeContentListItem({
       id: 'tutorial-1',
@@ -48,6 +58,24 @@ describe('content normalizers', () => {
     expect(response.page).toBe(2);
     expect(response.limit).toBe(12);
     expect(response.items[0]?.slug).toBe('video-1');
+  });
+
+  it('normalizes legacy HTTP production media URLs on content items', () => {
+    process.env.NEXT_PUBLIC_APP_URL = 'https://sesh-tv.com';
+    process.env.NEXT_PUBLIC_MINIO_URL = 'https://sesh-tv.com/minio';
+
+    const item = normalizeContentListItem({
+      id: 'video-1',
+      thumbnailUrl: 'http://sesh-tv.com/minio/thumbnails/video-1.jpg',
+      bannerUrl: 'http://sesh-tv.com/minio/thumbnails/video-1-banner.jpg',
+    } as any);
+
+    expect(item.thumbnailUrl).toBe(
+      'https://sesh-tv.com/minio/thumbnails/video-1.jpg',
+    );
+    expect(item.bannerUrl).toBe(
+      'https://sesh-tv.com/minio/thumbnails/video-1-banner.jpg',
+    );
   });
 
   it('normalizes incomplete public detail responses', () => {

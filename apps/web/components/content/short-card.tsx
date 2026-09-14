@@ -459,7 +459,7 @@ export const ShortCard = forwardRef<HTMLDivElement, ShortCardProps>(
         <button
           type="button"
           aria-label={isMuted ? 'Включить звук' : 'Выключить звук'}
-          className="absolute right-4 top-[calc(16px+env(safe-area-inset-top,0px))] z-20 grid h-11 w-11 place-items-center rounded-full border border-white/14 bg-[#07020f]/52 text-white shadow-[0_0_20px_rgba(213,32,58,0.18),inset_0_1px_0_rgba(255,255,255,0.1)] backdrop-blur-xl transition-all duration-200 hover:border-[#55b7ff]/42 hover:bg-[#0b1727]/70 active:scale-95 sm:right-5 sm:top-5"
+          className="sesh-shorts-sound-button absolute right-4 top-[calc(16px+env(safe-area-inset-top,0px))] z-20 grid h-11 w-11 place-items-center rounded-full border border-white/14 bg-[#07020f]/52 text-white shadow-[0_0_20px_rgba(213,32,58,0.18),inset_0_1px_0_rgba(255,255,255,0.1)] backdrop-blur-xl transition-all duration-200 hover:border-[#55b7ff]/42 hover:bg-[#0b1727]/70 active:scale-95 sm:right-5 sm:top-5"
           onClick={(event) => {
             event.stopPropagation();
             handleToggleMute();
@@ -485,7 +485,7 @@ export const ShortCard = forwardRef<HTMLDivElement, ShortCardProps>(
         </div>
 
         {/* Bottom info */}
-        <div className="absolute bottom-7 left-5 right-5 z-10 sm:bottom-8 sm:left-6 sm:right-6">
+        <div className="shorts-info absolute bottom-7 left-5 right-5 z-10 sm:bottom-8 sm:left-6 sm:right-6">
           <h3 className="mb-1.5 line-clamp-2 text-[22px] font-bold leading-tight text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.7)] sm:text-2xl">
             {content.title}
           </h3>
@@ -501,7 +501,7 @@ export const ShortCard = forwardRef<HTMLDivElement, ShortCardProps>(
             </div>
 
         {/* Side action bar */}
-        <div className="absolute bottom-28 right-3 z-10 flex flex-col items-center gap-4 sm:bottom-20 md:static md:translate-y-[38px] md:gap-5">
+        <div className="shorts-actions absolute bottom-28 right-3 z-10 flex flex-col items-center gap-4 sm:bottom-20 md:static md:translate-y-[38px] md:gap-5">
           {creatorIdentity ? (
             creatorHref ? (
               <Link

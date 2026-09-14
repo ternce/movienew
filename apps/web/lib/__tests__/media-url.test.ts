@@ -35,4 +35,29 @@ describe('normalizeMediaUrl', () => {
       normalizeMediaUrl('http://storage.example.com:9000/thumbnails/x/thumb.jpg'),
     ).toBe('/minio/thumbnails/x/thumb.jpg');
   });
+
+  it('should upgrade legacy production HTTP MinIO media URLs to HTTPS', () => {
+    process.env.NEXT_PUBLIC_APP_URL = 'https://sesh-tv.com';
+    process.env.NEXT_PUBLIC_MINIO_URL = 'https://sesh-tv.com/minio';
+
+    expect(
+      normalizeMediaUrl('http://sesh-tv.com/minio/thumbnails/x/thumb.jpg'),
+    ).toBe('https://sesh-tv.com/minio/thumbnails/x/thumb.jpg');
+  });
+
+  it('should not upgrade arbitrary third-party HTTP URLs', () => {
+    process.env.NEXT_PUBLIC_APP_URL = 'https://sesh-tv.com';
+
+    expect(normalizeMediaUrl('http://example.com/minio/x.jpg')).toBe(
+      'http://example.com/minio/x.jpg',
+    );
+  });
+
+  it('should not duplicate /minio when configured endpoint includes the proxy path', () => {
+    process.env.NEXT_PUBLIC_MINIO_URL = 'https://sesh-tv.com/minio';
+
+    expect(
+      normalizeMediaUrl('https://sesh-tv.com/minio/thumbnails/x/thumb.jpg'),
+    ).toBe('/minio/thumbnails/x/thumb.jpg');
+  });
 });

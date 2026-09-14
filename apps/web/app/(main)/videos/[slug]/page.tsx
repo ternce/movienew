@@ -80,8 +80,8 @@ export default function VideoDetailPage() {
       : video.category
     : null;
   return (
-    <Container size="lg" className="py-6">
-      <div className="relative mb-8 overflow-hidden rounded-2xl bg-mp-surface-2">
+    <Container size="lg" className="sesh-content-detail-page py-6">
+      <div className="sesh-content-detail-card relative mb-8 overflow-hidden rounded-2xl bg-mp-surface-2">
         <div className="relative aspect-video">
           {video.thumbnailUrl ? (
             <ContentImage

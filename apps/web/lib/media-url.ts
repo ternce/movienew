@@ -4,6 +4,7 @@
  * Handles legacy/incorrect cases:
  * - URLs accidentally stored with /api/v1 prefix before /uploads
  * - Production DB rows containing http://localhost:4000/... which breaks for real users
+ * - Legacy production public media URLs stored as http://sesh-tv.com/minio/...
  *
  * Intended for client-side usage (may use window.location).
  */
@@ -37,6 +38,42 @@ export function normalizeMediaUrl(raw: string): string {
     }
   };
 
+  const getHttpsPublicMediaUrl = (url: URL) => {
+    if (url.protocol !== 'http:') return null;
+
+    const publicHttpsOrigins = [
+      process.env.NEXT_PUBLIC_APP_URL,
+      process.env.NEXT_PUBLIC_MINIO_URL,
+      typeof window !== 'undefined' ? window.location.origin : null,
+      'https://sesh-tv.com',
+    ]
+      .map((value) => {
+        if (!value) return null;
+        try {
+          const parsed = new URL(value);
+          return parsed.protocol === 'https:' ? parsed : null;
+        } catch {
+          return null;
+        }
+      })
+      .filter((value): value is URL => Boolean(value));
+
+    const matchesPublicHttpsHost = publicHttpsOrigins.some(
+      (origin) => origin.hostname === url.hostname,
+    );
+    if (!matchesPublicHttpsHost) return null;
+
+    const isPublicMediaPath =
+      url.pathname.startsWith('/minio/') ||
+      url.pathname.startsWith('/uploads/') ||
+      /^\/api\/v\d+\/uploads\//.test(url.pathname) ||
+      url.pathname.startsWith('/api/uploads/');
+
+    if (!isPublicMediaPath) return null;
+
+    return `https://${url.host}${url.pathname}${url.search}${url.hash}`;
+  };
+
   const toMinioProxyPath = (pathname: string) => {
     // MinIO buckets are exposed via reverse proxy at /minio/*
     // Example: http://localhost:9000/thumbnails/<id>/thumb.jpg -> /minio/thumbnails/<id>/thumb.jpg
@@ -64,13 +101,24 @@ export function normalizeMediaUrl(raw: string): string {
     const u = new URL(raw);
     u.pathname = fixUploadsPath(u.pathname);
 
+    const httpsPublicMediaUrl = getHttpsPublicMediaUrl(u);
+    if (httpsPublicMediaUrl) return httpsPublicMediaUrl;
+
     // If URL points to configured public MinIO endpoint, rewrite to same-origin /minio proxy.
     const configuredMinio = getConfiguredMinioEndpoint();
     if (configuredMinio) {
       const configuredPort = configuredMinio.port || (configuredMinio.protocol === 'https:' ? '443' : '80');
       const urlPort = u.port || (u.protocol === 'https:' ? '443' : '80');
       if (u.hostname === configuredMinio.hostname && urlPort === configuredPort) {
-        return `${toMinioProxyPath(u.pathname)}${u.search}${u.hash}`;
+        const configuredPath = configuredMinio.pathname.replace(/\/+$/, '');
+        const proxyPath =
+          configuredPath &&
+          configuredPath !== '/' &&
+          u.pathname.startsWith(`${configuredPath}/`)
+            ? u.pathname
+            : toMinioProxyPath(u.pathname);
+
+        return `${proxyPath}${u.search}${u.hash}`;
       }
     }
 

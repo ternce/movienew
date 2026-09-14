@@ -167,9 +167,9 @@ export default function SeriesDetailPage() {
   }
 
   return (
-    <div className="bg-mp-bg-primary">
+    <div className="sesh-content-detail-page bg-mp-bg-primary">
       {/* Hero banner */}
-      <div className="relative isolate h-[400px] overflow-hidden md:h-[500px]">
+      <div className="sesh-content-detail-hero relative isolate h-[400px] overflow-hidden md:h-[500px]">
         <ContentImage
           src={series.bannerUrl}
           alt={series.title}
@@ -277,7 +277,7 @@ export default function SeriesDetailPage() {
         </Container>
       </div>
 
-      <div className="relative z-20 bg-mp-bg-primary">
+      <div className="sesh-content-detail-body relative z-20 bg-mp-bg-primary">
         <Container size="xl" className="pt-6">
           <CreatorChannelBlock creator={series.creator} />
         </Container>

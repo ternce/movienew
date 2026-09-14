@@ -85,9 +85,9 @@ export default function TutorialDetailPage() {
   ];
 
   return (
-    <Container size="lg" className="py-6">
+    <Container size="lg" className="sesh-content-detail-page py-6">
       {/* Hero section */}
-      <div className="relative rounded-2xl overflow-hidden bg-mp-surface-2 mb-8">
+      <div className="sesh-content-detail-card relative rounded-2xl overflow-hidden bg-mp-surface-2 mb-8">
         <div className="relative aspect-[21/9] sm:aspect-[3/1]">
           <ContentImage
             src={tutorial.thumbnailUrl || "/images/movie-placeholder.jpg"}

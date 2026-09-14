@@ -20,6 +20,7 @@ import type {
 } from '@/hooks/partner/use-partner-dashboard';
 import { buildAbsoluteAppUrl } from '@/lib/utils';
 import { normalizeAgeCategory } from '@/lib/age-category';
+import { normalizeMediaUrl } from '@/lib/media-url';
 
 const CONTENT_PLACEHOLDER_IMAGE = '/images/movie-placeholder.jpg';
 
@@ -39,6 +40,16 @@ function asNumber(value: unknown, fallback = 0): number {
 
 function asNullableString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function asMediaUrl(value: unknown, fallback = ''): string {
+  const url = asString(value);
+  return url ? normalizeMediaUrl(url) : fallback;
+}
+
+function asNullableMediaUrl(value: unknown): string | null {
+  const url = asNullableString(value);
+  return url ? normalizeMediaUrl(url) : null;
 }
 
 function normalizeCategory(value: unknown) {
@@ -117,10 +128,10 @@ export function normalizeContentListItem<T extends UnknownRecord>(item: T) {
     slug: asString(item.slug, asString(item.id)),
     title: asString(item.title, 'Без названия'),
     description: asString(item.description),
-    thumbnailUrl: asNullableString(item.thumbnailUrl) ?? CONTENT_PLACEHOLDER_IMAGE,
-    coverUrl: asString(item.coverUrl),
-    bannerUrl: asString(item.bannerUrl),
-    heroImageUrl: asString(item.heroImageUrl),
+    thumbnailUrl: asNullableMediaUrl(item.thumbnailUrl) ?? CONTENT_PLACEHOLDER_IMAGE,
+    coverUrl: asMediaUrl(item.coverUrl),
+    bannerUrl: asMediaUrl(item.bannerUrl),
+    heroImageUrl: asMediaUrl(item.heroImageUrl),
     contentType: asString(item.contentType),
     ageCategory: normalizeAgeCategory(asString(item.ageCategory, '0+')),
     duration: asNumber(item.duration),
@@ -171,7 +182,7 @@ export function normalizeContentDetail(rawData: unknown) {
   return {
     ...normalizeContentListItem(raw),
     description: asString(raw.description),
-    thumbnailUrl: asNullableString(raw.thumbnailUrl) ?? CONTENT_PLACEHOLDER_IMAGE,
+    thumbnailUrl: asNullableMediaUrl(raw.thumbnailUrl) ?? CONTENT_PLACEHOLDER_IMAGE,
     isFree: Boolean(raw.isFree),
     publishedAt: asString(raw.publishedAt),
   };
@@ -189,7 +200,7 @@ function normalizeEpisode(episode: UnknownRecord, index: number, seasonNumber: n
     episodeNumber: asNumber(episode.episodeNumber ?? episode.number, index + 1),
     seasonNumber: asNumber(episode.seasonNumber, seasonNumber),
     duration: asNumber(episode.duration),
-    thumbnailUrl: asNullableString(episode.thumbnailUrl) ?? CONTENT_PLACEHOLDER_IMAGE,
+    thumbnailUrl: asNullableMediaUrl(episode.thumbnailUrl) ?? CONTENT_PLACEHOLDER_IMAGE,
     progress: asNumber(episode.progress),
     isWatched: Boolean(episode.isWatched),
     isNext: Boolean(episode.isNext),
@@ -255,7 +266,7 @@ export function normalizeTutorialDetail(rawData: unknown) {
   return {
     ...normalizeContentDetail(raw),
     description: asString(raw.description),
-    thumbnailUrl: asNullableString(raw.thumbnailUrl) ?? CONTENT_PLACEHOLDER_IMAGE,
+    thumbnailUrl: asNullableMediaUrl(raw.thumbnailUrl) ?? CONTENT_PLACEHOLDER_IMAGE,
     seasons,
     lessons: lessons.length ? lessons : lessonsFromSeasons,
   };
@@ -273,8 +284,8 @@ export function normalizeSeriesDetail(rawData: unknown) {
     ...normalizeContentDetail(raw),
     originalTitle: asString(raw.originalTitle),
     bannerUrl:
-      asNullableString(raw.bannerUrl) ??
-      asNullableString(raw.thumbnailUrl) ??
+      asNullableMediaUrl(raw.bannerUrl) ??
+      asNullableMediaUrl(raw.thumbnailUrl) ??
       CONTENT_PLACEHOLDER_IMAGE,
     seasonCount: asNumber(raw.seasonCount, seasons.length),
     episodeCount: asNumber(raw.episodeCount, episodeCount),
